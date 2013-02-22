@@ -555,7 +555,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <returns></returns>
         private int GetFundsForAgentID(UUID AgentID)
         {
-            int returnfunds = 0;
+            int returnfunds = 7500001;	// Set it to the OpenSim version, plus the IG build number.  Muahahaha;
             
             return returnfunds;
         }

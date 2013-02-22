@@ -16,12 +16,12 @@ CREATE TABLE `xassetsmeta` (
   `asset_flags` int(11) NOT NULL,
   `creator_id` varchar(128) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Version 1';
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='Version 1';
 
 CREATE TABLE `xassetsdata` (
   `hash` binary(32) NOT NULL,
   `data` longblob NOT NULL,
   PRIMARY KEY (`hash`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Version 1';
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='Version 1';
 
 COMMIT;

@@ -52,13 +52,7 @@ namespace OpenSim.Region.CoreModules.Framework.EntityTransfer
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public const int DefaultMaxTransferDistance = 4095;
         public const bool WaitForAgentArrivedAtDestinationDefault = true;
-
-        /// <summary>
-        /// The maximum distance, in standard region units (256m) that an agent is allowed to transfer.
-        /// </summary>
-        public int MaxTransferDistance { get; set; }
 
         /// <summary>
         /// If true then on a teleport, the source region waits for a callback from the destination region.  If
@@ -118,12 +112,6 @@ namespace OpenSim.Region.CoreModules.Framework.EntityTransfer
             {
                 WaitForAgentArrivedAtDestination
                     = transferConfig.GetBoolean("wait_for_callback", WaitForAgentArrivedAtDestinationDefault);
-                
-                MaxTransferDistance = transferConfig.GetInt("max_distance", DefaultMaxTransferDistance);
-            }
-            else
-            {
-                MaxTransferDistance = DefaultMaxTransferDistance;
             }
 
             m_entityTransferStateMachine = new EntityTransferStateMachine(this);
@@ -371,26 +359,6 @@ namespace OpenSim.Region.CoreModules.Framework.EntityTransfer
             return true;
         }
 
-        /// <summary>
-        /// Determines whether this instance is within the max transfer distance.
-        /// </summary>
-        /// <param name="sourceRegion"></param>
-        /// <param name="destRegion"></param>
-        /// <returns>
-        /// <c>true</c> if this instance is within max transfer distance; otherwise, <c>false</c>.
-        /// </returns>
-        private bool IsWithinMaxTeleportDistance(RegionInfo sourceRegion, GridRegion destRegion)
-        {
-//                        m_log.DebugFormat("[ENTITY TRANSFER MODULE]: Source co-ords are x={0} y={1}", curRegionX, curRegionY);
-//
-//                        m_log.DebugFormat("[ENTITY TRANSFER MODULE]: Final dest is x={0} y={1} {2}@{3}",
-//                            destRegionX, destRegionY, finalDestination.RegionID, finalDestination.ServerURI);
-
-            // Insanely, RegionLoc on RegionInfo is the 256m map co-ord whilst GridRegion.RegionLoc is the raw meters position.
-            return Math.Abs(sourceRegion.RegionLocX - destRegion.RegionCoordX) <= MaxTransferDistance
-                && Math.Abs(sourceRegion.RegionLocY - destRegion.RegionCoordY) <= MaxTransferDistance;
-        }
-
         public void DoTeleport(
             ScenePresence sp, GridRegion reg, GridRegion finalDestination,
             Vector3 position, Vector3 lookAt, uint teleportFlags)
@@ -420,20 +388,6 @@ namespace OpenSim.Region.CoreModules.Framework.EntityTransfer
                 reg.ServerURI, finalDestination.ServerURI, finalDestination.RegionName, position);
 
             RegionInfo sourceRegion = sp.Scene.RegionInfo;
-
-            if (!IsWithinMaxTeleportDistance(sourceRegion, finalDestination))
-            {
-                sp.ControllingClient.SendTeleportFailed(
-                    string.Format(
-                      "Can't teleport to {0} ({1},{2}) from {3} ({4},{5}), destination is more than {6} regions way",
-                      finalDestination.RegionName, finalDestination.RegionCoordX, finalDestination.RegionCoordY,
-                      sourceRegion.RegionName, sourceRegion.RegionLocX, sourceRegion.RegionLocY,
-                      MaxTransferDistance));
-
-                m_entityTransferStateMachine.ResetFromTransit(sp.UUID);
-
-                return;
-            }
 
             uint newRegionX = (uint)(reg.RegionHandle >> 40);
             uint newRegionY = (((uint)(reg.RegionHandle)) >> 8);

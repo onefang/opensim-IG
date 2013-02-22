@@ -129,9 +129,6 @@ HGAssetServiceConnector = "HGAssetService@8002/OpenSim.Server.Handlers.dll:Asset
     ; Realm = "regions"
     ; AllowDuplicateNames = "True"
 
-    ;; Perform distance check for the creation of a linked region
-    ; Check4096 = "True"
-
     ;; Needed to display non-default map tile images for linked regions
     AssetService = "OpenSim.Services.AssetService.dll:AssetService"
 

@@ -30,8 +30,8 @@ namespace OpenSim
     public class VersionInfo
     {
         private const string VERSION_NUMBER = "0.7.5";
-        private const string BUILD_NUMBER = "1";
-        private const Flavour VERSION_FLAVOUR = Flavour.InfiniteGrid;
+        private const string IG_BUILD_NUMBER = "1";
+        private const Flavour VERSION_FLAVOUR = Flavour.IG;
 
         public enum Flavour
         {
@@ -42,22 +42,22 @@ namespace OpenSim
             Release,
             Post_Fixes,
             Extended,
-            InfiniteGrid
+            IG
         }
 
         public static string Version
         {
-            get { return GetVersionString(VERSION_NUMBER, VERSION_FLAVOUR, BUILD_NUMBER); }
+            get { return GetVersionString(VERSION_NUMBER, IG_BUILD_NUMBER, VERSION_FLAVOUR); }
         }
 
-        public static string GetVersionString(string versionNumber, Flavour flavour, string buildNumber)
+        public static string GetVersionString(string versionNumber, string buildNumber, Flavour flavour)
         {
             string versionString = "OpenSim " + versionNumber + " " + flavour + " build " + buildNumber;
             return versionString.PadRight(VERSIONINFO_VERSION_LENGTH);
         }
 
-        public const int VERSIONINFO_VERSION_LENGTH = 34;
-        
+        public const int VERSIONINFO_VERSION_LENGTH = 39;
+
         /// <value>
         /// This is the external interface version.  It is separate from the OpenSimulator project version.
         /// 

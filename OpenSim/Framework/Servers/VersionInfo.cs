@@ -30,7 +30,7 @@ namespace OpenSim
     public class VersionInfo
     {
         private const string VERSION_NUMBER = "0.7.5";
-        private const string IG_BUILD_NUMBER = "1";
+        private const string IG_BUILD_NUMBER = "4";
         private const Flavour VERSION_FLAVOUR = Flavour.IG;
 
         public enum Flavour

@@ -50,11 +50,6 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        /// <value>
-        /// Enable or disable checking whether the iar user is actually logged in
-        /// </value>
-//        public bool DisablePresenceChecks { get; set; }
-
         public event InventoryArchiveSaved OnInventoryArchiveSaved;
         public event InventoryArchiveLoaded OnInventoryArchiveLoaded;
 
@@ -93,11 +88,6 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 
 
         public InventoryArchiverModule() {}
-
-//        public InventoryArchiverModule(bool disablePresenceChecks)
-//        {
-//            DisablePresenceChecks = disablePresenceChecks;
-        //        }
 
         #region ISharedRegionModule
 
@@ -214,30 +204,21 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 
                 if (userInfo != null)
                 {
-//                    if (CheckPresence(userInfo.PrincipalID))
-//                    {
-                        try
-                        {
-                            new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, saveStream).Execute(options, UserAccountService);
-                        }
-                        catch (EntryPointNotFoundException e)
-                        {
-                            m_log.ErrorFormat(
-                                "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
-                                    + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
-                            m_log.Error(e);
+                    try
+                    {
+                        new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, saveStream).Execute(options, UserAccountService);
+                    }
+                    catch (EntryPointNotFoundException e)
+                    {
+                        m_log.ErrorFormat(
+                            "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
+                                + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
+                        m_log.Error(e);
 
-                            return false;
-                        }
+                        return false;
+                    }
 
-                        return true;
-//                    }
-//                    else
-//                    {
-//                        m_log.ErrorFormat(
-//                            "[INVENTORY ARCHIVER]: User {0} {1} {2} not logged in to this region simulator",
-//                            userInfo.FirstName, userInfo.LastName, userInfo.PrincipalID);
-//                    }
+                    return true;
                 }
             }
 
@@ -257,30 +238,21 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 
                 if (userInfo != null)
                 {
-//                    if (CheckPresence(userInfo.PrincipalID))
-//                    {
-                        try
-                        {
-                            new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, savePath).Execute(options, UserAccountService);
-                        }
-                        catch (EntryPointNotFoundException e)
-                        {
-                            m_log.ErrorFormat(
-                                "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
-                                    + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
-                            m_log.Error(e);
+                    try
+                    {
+                        new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, savePath).Execute(options, UserAccountService);
+                    }
+                    catch (EntryPointNotFoundException e)
+                    {
+                        m_log.ErrorFormat(
+                            "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
+                                + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
+                        m_log.Error(e);
 
-                            return false;
-                        }
+                        return false;
+                    }
 
-                        return true;
-//                    }
-//                    else
-//                    {
-//                        m_log.ErrorFormat(
-//                            "[INVENTORY ARCHIVER]: User {0} {1} {2} not logged in to this region simulator",
-//                            userInfo.FirstName, userInfo.LastName, userInfo.PrincipalID);
-//                    }
+                    return true;
                 }
             }
 
@@ -302,35 +274,26 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 
                 if (userInfo != null)
                 {
-//                    if (CheckPresence(userInfo.PrincipalID))
-//                    {
-                        InventoryArchiveReadRequest request;
-                        bool merge = (options.ContainsKey("merge") ? (bool)options["merge"] : false);
+                    InventoryArchiveReadRequest request;
+                    bool merge = (options.ContainsKey("merge") ? (bool)options["merge"] : false);
 
-                        try
-                        {
-                            request = new InventoryArchiveReadRequest(id, this, m_aScene.InventoryService, m_aScene.AssetService, m_aScene.UserAccountService, userInfo, invPath, loadStream, merge);
-                        }
-                        catch (EntryPointNotFoundException e)
-                        {
-                            m_log.ErrorFormat(
-                                "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
-                                    + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
-                            m_log.Error(e);
+                    try
+                    {
+                        request = new InventoryArchiveReadRequest(id, this, m_aScene.InventoryService, m_aScene.AssetService, m_aScene.UserAccountService, userInfo, invPath, loadStream, merge);
+                    }
+                    catch (EntryPointNotFoundException e)
+                    {
+                        m_log.ErrorFormat(
+                            "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
+                                + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
+                        m_log.Error(e);
 
-                            return false;
-                        }
+                        return false;
+                    }
 
-                        UpdateClientWithLoadedNodes(userInfo, request.Execute());
+                    UpdateClientWithLoadedNodes(userInfo, request.Execute());
 
-                        return true;
-//                    }
-//                    else
-//                    {
-//                        m_log.ErrorFormat(
-//                            "[INVENTORY ARCHIVER]: User {0} {1} {2} not logged in to this region simulator",
-//                            userInfo.FirstName, userInfo.LastName, userInfo.PrincipalID);
-//                    }
+                    return true;
                 }
                 else
                     m_log.ErrorFormat("[INVENTORY ARCHIVER]: User {0} {1} not found",
@@ -350,35 +313,26 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 
                 if (userInfo != null)
                 {
-//                    if (CheckPresence(userInfo.PrincipalID))
-//                    {
-                        InventoryArchiveReadRequest request;
-                        bool merge = (options.ContainsKey("merge") ? (bool)options["merge"] : false);
+                    InventoryArchiveReadRequest request;
+                    bool merge = (options.ContainsKey("merge") ? (bool)options["merge"] : false);
 
-                        try
-                        {
-                            request = new InventoryArchiveReadRequest(id, this, m_aScene.InventoryService, m_aScene.AssetService, m_aScene.UserAccountService, userInfo, invPath, loadPath, merge);
-                        }
-                        catch (EntryPointNotFoundException e)
-                        {
-                            m_log.ErrorFormat(
-                                "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
-                                    + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
-                            m_log.Error(e);
+                    try
+                    {
+                        request = new InventoryArchiveReadRequest(id, this, m_aScene.InventoryService, m_aScene.AssetService, m_aScene.UserAccountService, userInfo, invPath, loadPath, merge);
+                    }
+                    catch (EntryPointNotFoundException e)
+                    {
+                        m_log.ErrorFormat(
+                            "[INVENTORY ARCHIVER]: Mismatch between Mono and zlib1g library version when trying to create compression stream."
+                                + "If you've manually installed Mono, have you appropriately updated zlib1g as well?");
+                        m_log.Error(e);
 
-                            return false;
-                        }
+                        return false;
+                    }
 
-                        UpdateClientWithLoadedNodes(userInfo, request.Execute());
+                    UpdateClientWithLoadedNodes(userInfo, request.Execute());
 
-                        return true;
-//                    }
-//                    else
-//                    {
-//                        m_log.ErrorFormat(
-//                            "[INVENTORY ARCHIVER]: User {0} {1} {2} not logged in to this region simulator",
-//                            userInfo.FirstName, userInfo.LastName, userInfo.PrincipalID);
-//                    }
+                    return true;
                 }
             }
 
@@ -615,28 +569,5 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
                 }
             }
         }
-
-//        /// <summary>
-//        /// Check if the given user is present in any of the scenes.
-//        /// </summary>
-//        /// <param name="userId">The user to check</param>
-//        /// <returns>true if the user is in any of the scenes, false otherwise</returns>
-//        protected bool CheckPresence(UUID userId)
-//        {
-//            if (DisablePresenceChecks)
-//                return true;
-//
-//            foreach (Scene scene in m_scenes.Values)
-//            {
-//                ScenePresence p;
-//                if ((p = scene.GetScenePresence(userId)) != null)
-//                {
-//                    p.ControllingClient.SendAgentAlertMessage("Inventory operation has been started", false);
-//                    return true;
-//                }
-//            }
-//
-//            return false;
-//        }
     }
 }

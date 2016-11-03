@@ -44,6 +44,10 @@ namespace OpenSim.Region.Framework.Scenes
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+#pragma warning disable 414
+        private static readonly string LogHeader = "[SCENE]";
+#pragma warning restore 414
+
         #region Events
 
         public event restart OnRestart;
@@ -77,6 +81,13 @@ namespace OpenSim.Region.Framework.Scenes
         /// The module interfaces available from this scene.
         /// </value>
         protected Dictionary<Type, List<object>> ModuleInterfaces = new Dictionary<Type, List<object>>();
+
+        /// <summary>
+        /// These two objects hold the information about any formats used
+        /// by modules that hold agent specific data.
+        /// </summary>
+        protected List<UUID> FormatsOffered = new List<UUID>();
+        protected Dictionary<object, List<UUID>> FormatsWanted = new Dictionary<object, List<UUID>>();
 
         protected Dictionary<string, object> ModuleAPIMethods = new Dictionary<string, object>();
 
@@ -141,10 +152,6 @@ namespace OpenSim.Region.Framework.Scenes
             get { return 1.0f; }
         }
 
-        protected ulong m_regionHandle;
-        protected string m_regionName;
-        protected RegionInfo m_regInfo;
-
         public ITerrainChannel Heightmap;
 
         /// <value>
@@ -192,7 +199,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// Number of frames to update.  Exits on shutdown even if there are frames remaining.
         /// If -1 then updates until shutdown.
         /// </param>
-        public abstract void Update(int frames);
+        /// <returns>true if update completed within minimum frame time, false otherwise.</returns>
+        public abstract bool Update(int frames);
 
         #endregion
 
@@ -209,15 +217,21 @@ namespace OpenSim.Region.Framework.Scenes
         /// <param name="RemoteClient">Client to send to</param>
         public virtual void SendLayerData(IClientAPI RemoteClient)
         {
-            RemoteClient.SendLayerData(Heightmap.GetFloatsSerialised());
+            // RemoteClient.SendLayerData(Heightmap.GetFloatsSerialised());
+            ITerrainModule terrModule = RequestModuleInterface<ITerrainModule>();
+            if (terrModule != null)
+            {
+                terrModule.PushTerrain(RemoteClient);
+            }
         }
 
         #endregion
 
         #region Add/Remove Agent/Avatar
 
-        public abstract ISceneAgent AddNewClient(IClientAPI client, PresenceType type);
-        public abstract void RemoveClient(UUID agentID, bool closeChildAgents);
+        public abstract ISceneAgent AddNewAgent(IClientAPI client, PresenceType type);
+
+        public abstract bool CloseAgent(UUID agentID, bool force);
 
         public bool TryGetScenePresence(UUID agentID, out object scenePresence)
         {
@@ -360,6 +374,38 @@ namespace OpenSim.Region.Framework.Scenes
             return m_moduleCommanders;
         }
 
+        public List<UUID> GetFormatsOffered()
+        {
+            List<UUID> ret = new List<UUID>(FormatsOffered);
+
+            return ret;
+        }
+
+        protected void CheckAndAddAgentDataFormats(object mod)
+        {
+            if (!(mod is IAgentStatefulModule))
+                return;
+
+            IAgentStatefulModule m = (IAgentStatefulModule)mod;
+
+            List<UUID> renderFormats = m.GetRenderStateFormats();
+            List<UUID> acceptFormats = m.GetAcceptStateFormats();
+
+            foreach (UUID render in renderFormats)
+            {
+                if (!(FormatsOffered.Contains(render)))
+                    FormatsOffered.Add(render);
+            }
+
+            if (acceptFormats.Count == 0)
+                return;
+
+            if (FormatsWanted.ContainsKey(mod))
+                return;
+
+            FormatsWanted[mod] = acceptFormats;
+        }
+
         /// <summary>
         /// Register an interface to a region module.  This allows module methods to be called directly as
         /// well as via events.  If there is already a module registered for this interface, it is not replaced
@@ -382,6 +428,8 @@ namespace OpenSim.Region.Framework.Scenes
 
             l.Add(mod);
 
+            CheckAndAddAgentDataFormats(mod);
+
             if (mod is IEntityCreator)
             {
                 IEntityCreator entityCreator = (IEntityCreator)mod;
@@ -394,6 +442,14 @@ namespace OpenSim.Region.Framework.Scenes
 
         public void UnregisterModuleInterface<M>(M mod)
         {
+            // We can't unregister agent stateful modules because
+            // that would require much more data to be held about formats
+            // and would make that code slower and less efficient.
+            // No known modules are unregistered anyway, ever, unless
+            // the simulator shuts down anyway.
+            if (mod is IAgentStatefulModule)
+                return;
+
             List<Object> l;
             if (ModuleInterfaces.TryGetValue(typeof(M), out l))
             {
@@ -423,6 +479,8 @@ namespace OpenSim.Region.Framework.Scenes
                 return;
 
             l.Add(mod);
+
+            CheckAndAddAgentDataFormats(mod);
 
             if (mod is IEntityCreator)
             {
@@ -559,6 +617,10 @@ namespace OpenSim.Region.Framework.Scenes
         public virtual bool AllowScriptCrossings
         {
             get { return false; }
+        }
+
+        public virtual void Start()
+        {
         }
 
         public void Restart()

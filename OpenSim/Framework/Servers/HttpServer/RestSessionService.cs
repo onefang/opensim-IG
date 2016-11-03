@@ -77,44 +77,34 @@ namespace OpenSim.Framework.Servers.HttpServer
             request.ContentType = "text/xml";
             request.Timeout = 20000;
 
-            MemoryStream buffer = new MemoryStream();
-
-            XmlWriterSettings settings = new XmlWriterSettings();
-            settings.Encoding = Encoding.UTF8;
-
-            using (XmlWriter writer = XmlWriter.Create(buffer, settings))
+            using (MemoryStream buffer = new MemoryStream())
             {
-                XmlSerializer serializer = new XmlSerializer(type);
-                serializer.Serialize(writer, sobj);
-                writer.Flush();
+                XmlWriterSettings settings = new XmlWriterSettings();
+                settings.Encoding = Encoding.UTF8;
+
+                using (XmlWriter writer = XmlWriter.Create(buffer, settings))
+                {
+                    XmlSerializer serializer = new XmlSerializer(type);
+                    serializer.Serialize(writer, sobj);
+                    writer.Flush();
+                }
+
+                int length = (int)buffer.Length;
+                request.ContentLength = length;
+
+                using (Stream requestStream = request.GetRequestStream())
+                    requestStream.Write(buffer.ToArray(), 0, length);
             }
-
-            int length = (int)buffer.Length;
-            request.ContentLength = length;
-
-            Stream requestStream = request.GetRequestStream();
-            requestStream.Write(buffer.ToArray(), 0, length);
-            buffer.Close();
-            requestStream.Close();
 
             TResponse deserial = default(TResponse);
             using (WebResponse resp = request.GetResponse())
             {
                 XmlSerializer deserializer = new XmlSerializer(typeof(TResponse));
-                Stream respStream = null;
-                try
-                {
-                    respStream = resp.GetResponseStream();
+
+                using (Stream respStream = resp.GetResponseStream())
                     deserial = (TResponse)deserializer.Deserialize(respStream);
-                }
-                catch { }
-                finally
-                {
-                    if (respStream != null)
-                        respStream.Close();
-                    resp.Close();
-                }
             }
+
             return deserial;
         }
     }
@@ -142,25 +132,25 @@ namespace OpenSim.Framework.Servers.HttpServer
             request.ContentType = "text/xml";
             request.Timeout = 10000;
 
-            MemoryStream buffer = new MemoryStream();
-
-            XmlWriterSettings settings = new XmlWriterSettings();
-            settings.Encoding = Encoding.UTF8;
-
-            using (XmlWriter writer = XmlWriter.Create(buffer, settings))
+            using (MemoryStream buffer = new MemoryStream())
             {
-                XmlSerializer serializer = new XmlSerializer(type);
-                serializer.Serialize(writer, sobj);
-                writer.Flush();
+                XmlWriterSettings settings = new XmlWriterSettings();
+                settings.Encoding = Encoding.UTF8;
+
+                using (XmlWriter writer = XmlWriter.Create(buffer, settings))
+                {
+                    XmlSerializer serializer = new XmlSerializer(type);
+                    serializer.Serialize(writer, sobj);
+                    writer.Flush();
+                }
+
+                int length = (int)buffer.Length;
+                request.ContentLength = length;
+
+                using (Stream requestStream = request.GetRequestStream())
+                    requestStream.Write(buffer.ToArray(), 0, length);
             }
-            buffer.Close();
 
-            int length = (int)buffer.Length;
-            request.ContentLength = length;
-
-            Stream requestStream = request.GetRequestStream();
-            requestStream.Write(buffer.ToArray(), 0, length);
-            requestStream.Close();
             // IAsyncResult result = request.BeginGetResponse(AsyncCallback, request);
             request.BeginGetResponse(AsyncCallback, request);
         }
@@ -192,7 +182,7 @@ namespace OpenSim.Framework.Servers.HttpServer
 
     public delegate bool CheckIdentityMethod(string sid, string aid);
 
-    public class RestDeserialiseSecureHandler<TRequest, TResponse> : BaseRequestHandler, IStreamHandler
+    public class RestDeserialiseSecureHandler<TRequest, TResponse> : BaseOutputStreamHandler, IStreamHandler
         where TRequest : new()
     {
         private static readonly ILog m_log
@@ -210,7 +200,7 @@ namespace OpenSim.Framework.Servers.HttpServer
             m_method = method;
         }
 
-        public void Handle(string path, Stream request, Stream responseStream,
+        protected override void ProcessRequest(string path, Stream request, Stream responseStream,
                            IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
             RestSessionObject<TRequest> deserial = default(RestSessionObject<TRequest>);
@@ -246,7 +236,7 @@ namespace OpenSim.Framework.Servers.HttpServer
 
     public delegate bool CheckTrustedSourceMethod(IPEndPoint peer);
 
-    public class RestDeserialiseTrustedHandler<TRequest, TResponse> : BaseRequestHandler, IStreamHandler
+    public class RestDeserialiseTrustedHandler<TRequest, TResponse> : BaseOutputStreamHandler, IStreamHandler
         where TRequest : new()
     {
         private static readonly ILog m_log
@@ -269,7 +259,7 @@ namespace OpenSim.Framework.Servers.HttpServer
             m_method = method;
         }
 
-        public void Handle(string path, Stream request, Stream responseStream,
+        protected override void ProcessRequest(string path, Stream request, Stream responseStream,
                            IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
             TRequest deserial = default(TRequest);
@@ -301,6 +291,5 @@ namespace OpenSim.Framework.Servers.HttpServer
                 serializer.Serialize(xmlWriter, response);
             }
         }
-    }
-
+    }   
 }

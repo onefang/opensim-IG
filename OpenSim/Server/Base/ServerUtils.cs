@@ -41,7 +41,7 @@ using OpenSim.Framework.Servers.HttpServer;
 using OpenSim.Framework.Servers;
 
 
-[assembly:AddinRoot("Robust", "0.1")]
+[assembly:AddinRoot("Robust", OpenSim.VersionInfo.VersionNumber)]
 namespace OpenSim.Server.Base
 {
     [TypeExtensionPoint(Path="/Robust/Connector", Name="RobustConnector")]
@@ -89,9 +89,9 @@ namespace OpenSim.Server.Base
             Config = config;
 
             Registry = new AddinRegistry(registryPath, ".");
-            suppress_console_output_(true);
+            //suppress_console_output_(true);
             AddinManager.Initialize(registryPath);
-            suppress_console_output_(false);
+            //suppress_console_output_(false);
             AddinManager.Registry.Update();
             CommandManager commandmanager = new CommandManager(Registry);
             AddinManager.AddExtensionNodeHandler("/Robust/Connector", OnExtensionChanged);
@@ -138,17 +138,17 @@ namespace OpenSim.Server.Base
                 case ExtensionChange.Add:
                     if (a.AddinFile.Contains(Registry.DefaultAddinsFolder))
                     {
-                        m_log.InfoFormat("[SERVER]: Adding {0} from registry", a.Name);
+                        m_log.InfoFormat("[SERVER UTILS]: Adding {0} from registry", a.Name);
                         connector.PluginPath = System.IO.Path.Combine(Registry.DefaultAddinsFolder,a.Name.Replace(',', '.'));                    }
                     else
                     {
-                        m_log.InfoFormat("[SERVER]: Adding {0} from ./bin", a.Name);
+                        m_log.InfoFormat("[SERVER UTILS]: Adding {0} from ./bin", a.Name);
                         connector.PluginPath = a.AddinFile;
                     }
                     LoadPlugin(connector);
                     break;
                 case ExtensionChange.Remove:
-                    m_log.InfoFormat("[SERVER]: Removing {0}", a.Name);
+                    m_log.InfoFormat("[SERVER UTILS]: Removing {0}", a.Name);
                     UnloadPlugin(connector);
                     break;
             }
@@ -166,13 +166,13 @@ namespace OpenSim.Server.Base
             }
             else
             {
-                m_log.InfoFormat("[SERVER]: {0} Disabled.", connector.ConfigName);
+                m_log.InfoFormat("[SERVER UTILS]: {0} Disabled.", connector.ConfigName);
             }
         }
 
         private void UnloadPlugin(IRobustConnector connector)
         {
-            m_log.InfoFormat("[Server]: Unloading {0}", connector.ConfigName);
+            m_log.InfoFormat("[SERVER UTILS]: Unloading {0}", connector.ConfigName);
 
             connector.Unload();
         }
@@ -196,17 +196,19 @@ namespace OpenSim.Server.Base
 
         public static  byte[] SerializeResult(XmlSerializer xs, object data)
         {
-            MemoryStream ms = new MemoryStream();
-            XmlTextWriter xw = new XmlTextWriter(ms, Util.UTF8);
-            xw.Formatting = Formatting.Indented;
-            xs.Serialize(xw, data);
-            xw.Flush();
+            using (MemoryStream ms = new MemoryStream())
+            using (XmlTextWriter xw = new XmlTextWriter(ms, Util.UTF8))
+            {
+                xw.Formatting = Formatting.Indented;
+                xs.Serialize(xw, data);
+                xw.Flush();
 
-            ms.Seek(0, SeekOrigin.Begin);
-            byte[] ret = ms.GetBuffer();
-            Array.Resize(ref ret, (int)ms.Length);
+                ms.Seek(0, SeekOrigin.Begin);
+                byte[] ret = ms.GetBuffer();
+                Array.Resize(ref ret, (int)ms.Length);
 
-            return ret;
+                return ret;
+            }
         }
 
         /// <summary>
@@ -266,7 +268,7 @@ namespace OpenSim.Server.Base
                             && pluginType.ToString() != pluginType.Namespace + "." + className)
                             continue;
                         
-                        Type typeInterface = pluginType.GetInterface(interfaceName, true);
+                        Type typeInterface = pluginType.GetInterface(interfaceName);
 
                         if (typeInterface != null)
                         {
@@ -280,12 +282,13 @@ namespace OpenSim.Server.Base
                             {
                                 if (!(e is System.MissingMethodException))
                                 {
-                                    m_log.ErrorFormat("Error loading plugin {0} from {1}. Exception: {2}, {3}",
+                                    m_log.Error(string.Format("[SERVER UTILS]: Error loading plugin {0} from {1}. Exception: {2}",
                                         interfaceName, 
                                         dllName, 
-                                        e.InnerException == null ? e.Message : e.InnerException.Message, 
-                                        e.StackTrace);
+                                        e.InnerException == null ? e.Message : e.InnerException.Message),
+                                            e);
                                 }
+                                m_log.ErrorFormat("[SERVER UTILS]: Error loading plugin {0}: {1} args.Length {2}", dllName, e.Message, args.Length);
                                 return null;
                             }
 
@@ -298,14 +301,14 @@ namespace OpenSim.Server.Base
             }
             catch (ReflectionTypeLoadException rtle)
             {
-                m_log.Error(string.Format("Error loading plugin from {0}:\n{1}", dllName,
+                m_log.Error(string.Format("[SERVER UTILS]: Error loading plugin from {0}:\n{1}", dllName,
                     String.Join("\n", Array.ConvertAll(rtle.LoaderExceptions, e => e.ToString()))),
                     rtle);
                 return null;
             }
             catch (Exception e)
             {
-                m_log.Error(string.Format("Error loading plugin from {0}", dllName), e);
+                m_log.Error(string.Format("[SERVER UTILS]: Error loading plugin from {0}", dllName), e);
                 return null;
             }
         }
@@ -517,7 +520,7 @@ namespace OpenSim.Server.Base
         public static IConfigSource LoadInitialConfig(string url)
         {
             IConfigSource source = new XmlConfigSource();
-            m_log.InfoFormat("[CONFIG]: {0} is a http:// URI, fetching ...", url);
+            m_log.InfoFormat("[SERVER UTILS]: {0} is a http:// URI, fetching ...", url);
 
             // The ini file path is a http URI
             // Try to read it
@@ -529,7 +532,7 @@ namespace OpenSim.Server.Base
             }
             catch (Exception e)
             {
-                m_log.FatalFormat("[CONFIG]: Exception reading config from URI {0}\n" + e.ToString(), url);
+                m_log.FatalFormat("[SERVER UTILS]: Exception reading config from URI {0}\n" + e.ToString(), url);
                 Environment.Exit(1);
             }
 

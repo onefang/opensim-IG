@@ -35,7 +35,7 @@ using System.Reflection;
 using System.Text;
 using Nini.Config;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
+
 using OpenSim.Services.Interfaces;
 using OpenMetaverse;
 using OpenMetaverse.StructuredData;
@@ -69,7 +69,7 @@ namespace OpenSim.Services.Connectors
         public virtual GridRegion HelloNeighbour(ulong regionHandle, RegionInfo thisRegion)
         {
             uint x = 0, y = 0;
-            Utils.LongToUInts(regionHandle, out x, out y);
+            Util.RegionHandleToWorldLoc(regionHandle, out x, out y);
             GridRegion regInfo = m_GridService.GetRegionByPosition(thisRegion.ScopeID, (int)x, (int)y);
             if ((regInfo != null) &&
                 // Don't remote-call this instance; that's a startup hickup
@@ -97,9 +97,9 @@ namespace OpenSim.Services.Connectors
             }
             catch (Exception e)
             {
-                m_log.WarnFormat(
-                    "[NEIGHBOUR SERVICE CONNCTOR]: Unable to parse uri {0} to send HelloNeighbour from {1} to {2}.  Exception {3}{4}",
-                    uri, thisRegion.RegionName, region.RegionName, e.Message, e.StackTrace);
+                m_log.Warn(string.Format(
+                    "[NEIGHBOUR SERVICES CONNECTOR]: Unable to parse uri {0} to send HelloNeighbour from {1} to {2}.  Exception {3} ",
+                    uri, thisRegion.RegionName, region.RegionName, e.Message), e);
 
                 return false;
             }
@@ -116,9 +116,9 @@ namespace OpenSim.Services.Connectors
             }
             catch (Exception e)
             {
-                m_log.WarnFormat(
-                    "[NEIGHBOUR SERVICE CONNCTOR]: PackRegionInfoData failed for HelloNeighbour from {0} to {1}.  Exception {2}{3}",
-                    thisRegion.RegionName, region.RegionName, e.Message, e.StackTrace);
+                m_log.Warn(string.Format(
+                    "[NEIGHBOUR SERVICES CONNECTOR]: PackRegionInfoData failed for HelloNeighbour from {0} to {1}.  Exception {2} ",
+                    thisRegion.RegionName, region.RegionName, e.Message), e);
 
                 return false;
             }
@@ -136,9 +136,9 @@ namespace OpenSim.Services.Connectors
             }
             catch (Exception e)
             {
-                m_log.WarnFormat(
-                    "[NEIGHBOUR SERVICE CONNCTOR]: Exception thrown on serialization of HelloNeighbour from {0} to {1}.  Exception {2}{3}",
-                    thisRegion.RegionName, region.RegionName, e.Message, e.StackTrace);
+                m_log.Warn(string.Format(
+                    "[NEIGHBOUR SERVICES CONNECTOR]: Exception thrown on serialization of HelloNeighbour from {0} to {1}.  Exception {2} ",
+                    thisRegion.RegionName, region.RegionName, e.Message), e);
 
                 return false;
             }
@@ -153,50 +153,50 @@ namespace OpenSim.Services.Connectors
             }
             catch (Exception e)
             {
-                m_log.WarnFormat(
-                    "[NEIGHBOUR SERVICE CONNCTOR]: Unable to send HelloNeighbour from {0} to {1}.  Exception {2}{3}",
-                    thisRegion.RegionName, region.RegionName, e.Message, e.StackTrace);
+                m_log.Warn(string.Format(
+                    "[NEIGHBOUR SERVICES CONNECTOR]: Unable to send HelloNeighbour from {0} to {1} (uri {2}).  Exception {3} ",
+                    thisRegion.RegionName, region.RegionName, uri, e.Message), e);
 
                 return false;
             }
             finally
             {
                 if (os != null)
-                    os.Close();
+                    os.Dispose();
             }
 
             // Let's wait for the response
             //m_log.Info("[REST COMMS]: Waiting for a reply after DoHelloNeighbourCall");
 
-            StreamReader sr = null;
             try
             {
-                WebResponse webResponse = helloNeighbourRequest.GetResponse();
-                if (webResponse == null)
+                using (WebResponse webResponse = helloNeighbourRequest.GetResponse())
                 {
-                    m_log.DebugFormat(
-                        "[REST COMMS]: Null reply on DoHelloNeighbourCall post from {0} to {1}",
-                        thisRegion.RegionName, region.RegionName);
+                    if (webResponse == null)
+                    {
+                        m_log.DebugFormat(
+                            "[NEIGHBOUR SERVICES CONNECTOR]: Null reply on DoHelloNeighbourCall post from {0} to {1}",
+                            thisRegion.RegionName, region.RegionName);
+                    }
+
+                    using (Stream s = webResponse.GetResponseStream())
+                    {
+                        using (StreamReader sr = new StreamReader(s))
+                        {
+                            //reply = sr.ReadToEnd().Trim();
+                            sr.ReadToEnd().Trim();
+                            //m_log.InfoFormat("[REST COMMS]: DoHelloNeighbourCall reply was {0} ", reply);
+                        }
+                    }
                 }
-
-                sr = new StreamReader(webResponse.GetResponseStream());
-                //reply = sr.ReadToEnd().Trim();
-                sr.ReadToEnd().Trim();
-                //m_log.InfoFormat("[REST COMMS]: DoHelloNeighbourCall reply was {0} ", reply);
-
             }
             catch (Exception e)
             {
-                m_log.WarnFormat(
-                    "[NEIGHBOUR SERVICE CONNCTOR]: Exception on reply of DoHelloNeighbourCall from {0} back to {1}.  Exception {2}{3}",
-                    region.RegionName, thisRegion.RegionName, e.Message, e.StackTrace);
+                m_log.Warn(string.Format(
+                    "[NEIGHBOUR SERVICES CONNECTOR]: Exception on reply of DoHelloNeighbourCall from {0} back to {1}.  Exception {2} ",
+                    region.RegionName, thisRegion.RegionName, e.Message), e);
 
                 return false;
-            }
-            finally
-            {
-                if (sr != null)
-                    sr.Close();
             }
 
             return true;

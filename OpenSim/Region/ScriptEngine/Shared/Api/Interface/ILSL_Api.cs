@@ -124,6 +124,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         LSL_String llGetCreator();
         LSL_String llGetDate();
          LSL_Float llGetEnergy();
+        LSL_String llGetEnv(LSL_String name);
         LSL_Vector llGetForce();
        LSL_Integer llGetFreeMemory();
        LSL_Integer llGetFreeURLs();
@@ -149,6 +150,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         LSL_Vector llGetLocalPos();
       LSL_Rotation llGetLocalRot();
          LSL_Float llGetMass();
+         LSL_Float llGetMassMKS();
        LSL_Integer llGetMemoryLimit();
               void llGetNextEmail(string address, string subject);
         LSL_String llGetNotecardLine(string name, int line);
@@ -207,7 +209,8 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
          LSL_Float llGetWallclock();
               void llGiveInventory(string destination, string inventory);
               void llGiveInventoryList(string destination, string category, LSL_List inventory);
-       LSL_Integer llGiveMoney(string destination, int amount);
+              void llGiveMoney(string destination, int amount);
+        LSL_String llTransferLindenDollars(string destination, int amount);
               void llGodLikeRezObject(string inventory, LSL_Vector pos);
          LSL_Float llGround(LSL_Vector offset);
         LSL_Vector llGroundContour(LSL_Vector offset);
@@ -337,9 +340,12 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
               void llSetCameraParams(LSL_List rules);
               void llSetClickAction(int action);
               void llSetColor(LSL_Vector color, int face);
+              void llSetContentType(LSL_Key id, LSL_Integer type);
               void llSetDamage(double damage);
               void llSetForce(LSL_Vector force, int local);
               void llSetForceAndTorque(LSL_Vector force, LSL_Vector torque, int local);
+              void llSetVelocity(LSL_Vector velocity, int local);
+              void llSetAngularVelocity(LSL_Vector angularVelocity, int local);
               void llSetHoverHeight(double height, int water, double tau);
               void llSetInventoryPermMask(string item, int mask, int value);
               void llSetLinkAlpha(int linknumber, double alpha, int face);
@@ -426,6 +432,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
               void print(string str);
 
               void SetPrimitiveParamsEx(LSL_Key prim, LSL_List rules, string originFunc);
+              void llSetKeyframedMotion(LSL_List frames, LSL_List options);
           LSL_List GetPrimitiveParamsEx(LSL_Key prim, LSL_List rules);
     }
 }

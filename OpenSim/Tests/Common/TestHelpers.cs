@@ -114,6 +114,25 @@ namespace OpenSim.Tests.Common
         }
 
         /// <summary>
+        /// Parse a UUID stem into a full UUID.
+        /// </summary>
+        /// <remarks>
+        /// The fragment will come at the start of the UUID.  The rest will be 0s
+        /// </remarks>
+        /// <returns></returns>
+        /// <param name='frag'>
+        /// A UUID fragment that will be parsed into a full UUID.  Therefore, it can only contain
+        /// cahracters which are valid in a UUID, except for "-" which is currently only allowed if a full UUID is
+        /// given as the 'fragment'.
+        /// </param>
+        public static UUID ParseStem(string stem)
+        {
+            string rawUuid = stem.PadRight(32, '0');
+
+            return UUID.Parse(rawUuid);           
+        }
+
+        /// <summary>
         /// Parse tail section into full UUID.
         /// </summary>
         /// <param name="tail"></param>
@@ -121,6 +140,25 @@ namespace OpenSim.Tests.Common
         public static UUID ParseTail(int tail)
         {
             return new UUID(string.Format("00000000-0000-0000-0000-{0:X12}", tail));
+        }
+
+        /// <summary>
+        /// Parse a UUID tail section into a full UUID.
+        /// </summary>
+        /// <remarks>
+        /// The fragment will come at the end of the UUID.  The rest will be 0s
+        /// </remarks>
+        /// <returns></returns>
+        /// <param name='frag'>
+        /// A UUID fragment that will be parsed into a full UUID.  Therefore, it can only contain
+        /// cahracters which are valid in a UUID, except for "-" which is currently only allowed if a full UUID is
+        /// given as the 'fragment'.
+        /// </param>
+        public static UUID ParseTail(string stem)
+        {
+            string rawUuid = stem.PadLeft(32, '0');
+
+            return UUID.Parse(rawUuid);           
         }
     }
 }

@@ -51,6 +51,7 @@ namespace OpenSim.Data.SQLite
     public class SQLiteSimulationData : ISimulationDataStore
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly string LogHeader = "[REGION DB SQLITE]";
 
         private const string primSelect = "select * from prims";
         private const string shapeSelect = "select * from primshapes";
@@ -732,9 +733,12 @@ namespace OpenSim.Data.SQLite
                             }
 
                             SceneObjectGroup group = new SceneObjectGroup(prim);
+                            
                             createdObjects.Add(group.UUID, group);
                             retvals.Add(group);
                             LoadItems(prim);
+
+                           
                         }
                     }
                     catch (Exception e)
@@ -816,45 +820,44 @@ namespace OpenSim.Data.SQLite
             prim.Inventory.RestoreInventoryItems(inventory);
         }
 
+        // Legacy entry point for when terrain was always a 256x256 hieghtmap
+        public void StoreTerrain(double[,] ter, UUID regionID)
+        {
+            StoreTerrain(new HeightmapTerrainData(ter), regionID);
+        }
+
         /// <summary>
         /// Store a terrain revision in region storage
         /// </summary>
         /// <param name="ter">terrain heightfield</param>
         /// <param name="regionID">region UUID</param>
-        public void StoreTerrain(double[,] ter, UUID regionID)
+        public void StoreTerrain(TerrainData terrData, UUID regionID)
         {
             lock (ds)
             {
-                int revision = Util.UnixTimeSinceEpoch();
-
-                // This is added to get rid of the infinitely growing
-                // terrain databases which negatively impact on SQLite
-                // over time.  Before reenabling this feature there
-                // needs to be a limitter put on the number of
-                // revisions in the database, as this old
-                // implementation is a DOS attack waiting to happen.
-
                 using (
-                    SqliteCommand cmd =
-                        new SqliteCommand("delete from terrain where RegionUUID=:RegionUUID and Revision <= :Revision",
-                                          m_conn))
+                    SqliteCommand cmd = new SqliteCommand("delete from terrain where RegionUUID=:RegionUUID", m_conn))
                 {
                     cmd.Parameters.Add(new SqliteParameter(":RegionUUID", regionID.ToString()));
-                    cmd.Parameters.Add(new SqliteParameter(":Revision", revision));
                     cmd.ExecuteNonQuery();
                 }
 
                 // the following is an work around for .NET.  The perf
                 // issues associated with it aren't as bad as you think.
-                m_log.Debug("[SQLITE REGION DB]: Storing terrain revision r" + revision.ToString());
                 String sql = "insert into terrain(RegionUUID, Revision, Heightfield)" +
                              " values(:RegionUUID, :Revision, :Heightfield)";
+
+                int terrainDBRevision;
+                Array terrainDBblob;
+                terrData.GetDatabaseBlob(out terrainDBRevision, out terrainDBblob);
+
+                m_log.DebugFormat("{0} Storing terrain revision r {1}", LogHeader, terrainDBRevision);
 
                 using (SqliteCommand cmd = new SqliteCommand(sql, m_conn))
                 {
                     cmd.Parameters.Add(new SqliteParameter(":RegionUUID", regionID.ToString()));
-                    cmd.Parameters.Add(new SqliteParameter(":Revision", revision));
-                    cmd.Parameters.Add(new SqliteParameter(":Heightfield", serializeTerrain(ter)));
+                    cmd.Parameters.Add(new SqliteParameter(":Revision", terrainDBRevision));
+                    cmd.Parameters.Add(new SqliteParameter(":Heightfield", terrainDBblob));
                     cmd.ExecuteNonQuery();
                 }
             }
@@ -867,11 +870,20 @@ namespace OpenSim.Data.SQLite
         /// <returns>Heightfield data</returns>
         public double[,] LoadTerrain(UUID regionID)
         {
+            double[,] ret = null;
+            TerrainData terrData = LoadTerrain(regionID, (int)Constants.RegionSize, (int)Constants.RegionSize, (int)Constants.RegionHeight);
+            if (terrData != null)
+                ret = terrData.GetDoubles();
+            return ret;
+        }
+
+        // Returns 'null' if region not found
+        public TerrainData LoadTerrain(UUID regionID, int pSizeX, int pSizeY, int pSizeZ)
+        {
+            TerrainData terrData = null;
+
             lock (ds)
             {
-                double[,] terret = new double[(int)Constants.RegionSize, (int)Constants.RegionSize];
-                terret.Initialize();
-
                 String sql = "select RegionUUID, Revision, Heightfield from terrain" +
                              " where RegionUUID=:RegionUUID order by Revision desc";
 
@@ -884,21 +896,9 @@ namespace OpenSim.Data.SQLite
                         int rev = 0;
                         if (row.Read())
                         {
-                            // TODO: put this into a function
-                            using (MemoryStream str = new MemoryStream((byte[])row["Heightfield"]))
-                            {
-                                using (BinaryReader br = new BinaryReader(str))
-                                {
-                                    for (int x = 0; x < (int)Constants.RegionSize; x++)
-                                    {
-                                        for (int y = 0; y < (int)Constants.RegionSize; y++)
-                                        {
-                                            terret[x, y] = br.ReadDouble();
-                                        }
-                                    }
-                                }
-                            }
                             rev = Convert.ToInt32(row["Revision"]);
+                            byte[] blob = (byte[])row["Heightfield"];
+                            terrData = TerrainData.CreateFromDatabaseBlobFactory(pSizeX, pSizeY, pSizeZ, rev, blob);
                         }
                         else
                         {
@@ -909,8 +909,8 @@ namespace OpenSim.Data.SQLite
                         m_log.Debug("[SQLITE REGION DB]: Loaded terrain revision r" + rev.ToString());
                     }
                 }
-                return terret;
             }
+            return terrData;
         }
 
         public void RemoveLandObject(UUID globalID)
@@ -1232,7 +1232,20 @@ namespace OpenSim.Data.SQLite
             createCol(prims, "VolumeDetect", typeof(Int16));
 
             createCol(prims, "MediaURL", typeof(String));
+            
+            createCol(prims, "AttachedPosX", typeof(Double));
+            createCol(prims, "AttachedPosY", typeof(Double));
+            createCol(prims, "AttachedPosZ", typeof(Double));
 
+            createCol(prims, "DynAttrs", typeof(String));
+
+            createCol(prims, "PhysicsShapeType", typeof(Byte));
+            createCol(prims, "Density", typeof(Double));
+            createCol(prims, "GravityModifier", typeof(Double));
+            createCol(prims, "Friction", typeof(Double));
+            createCol(prims, "Restitution", typeof(Double));
+
+            createCol(prims, "KeyframeMotion", typeof(Byte[]));
             // Add in contraints
             prims.PrimaryKey = new DataColumn[] { prims.Columns["UUID"] };
 
@@ -1592,7 +1605,7 @@ namespace OpenSim.Data.SQLite
             prim.SitName = (String)row["SitName"];
             prim.TouchName = (String)row["TouchName"];
             // permissions
-            prim.ObjectFlags = Convert.ToUInt32(row["ObjectFlags"]);
+            prim.Flags = (PrimFlags)Convert.ToUInt32(row["ObjectFlags"]);
             prim.CreatorIdentification = (String)row["CreatorID"];
             prim.OwnerID = new UUID((String)row["OwnerID"]);
             prim.GroupID = new UUID((String)row["GroupID"]);
@@ -1711,7 +1724,43 @@ namespace OpenSim.Data.SQLite
 //                m_log.DebugFormat("[SQLITE]: MediaUrl type [{0}]", row["MediaURL"].GetType());
                 prim.MediaUrl = (string)row["MediaURL"];
             }
+            
+            prim.AttachedPos = new Vector3(
+                Convert.ToSingle(row["AttachedPosX"]),
+                Convert.ToSingle(row["AttachedPosY"]),
+                Convert.ToSingle(row["AttachedPosZ"])
+                );
 
+            if (!(row["DynAttrs"] is System.DBNull))
+            {
+                //m_log.DebugFormat("[SQLITE]: DynAttrs type [{0}]", row["DynAttrs"].GetType());
+                prim.DynAttrs = DAMap.FromXml((string)row["DynAttrs"]);
+            }   
+            else
+            {
+                prim.DynAttrs = new DAMap();
+            }
+
+            prim.PhysicsShapeType = Convert.ToByte(row["PhysicsShapeType"]);
+            prim.Density = Convert.ToSingle(row["Density"]);
+            prim.GravityModifier = Convert.ToSingle(row["GravityModifier"]);
+            prim.Friction = Convert.ToSingle(row["Friction"]);
+            prim.Restitution = Convert.ToSingle(row["Restitution"]);
+
+            
+            if (!(row["KeyframeMotion"] is DBNull))
+            {
+                Byte[] data = (byte[])row["KeyframeMotion"];
+                if (data.Length > 0)
+                    prim.KeyframeMotion = KeyframeMotion.FromData(null, data);
+                else
+                    prim.KeyframeMotion = null;
+            }
+            else
+            {
+                prim.KeyframeMotion = null;
+            }
+            
             return prim;
         }
 
@@ -1967,40 +2016,6 @@ namespace OpenSim.Data.SQLite
         /// <summary>
         ///
         /// </summary>
-        /// <param name="val"></param>
-        /// <returns></returns>
-        private static Array serializeTerrain(double[,] val)
-        {
-            MemoryStream str = new MemoryStream(((int)Constants.RegionSize * (int)Constants.RegionSize) * sizeof(double));
-            BinaryWriter bw = new BinaryWriter(str);
-
-            // TODO: COMPATIBILITY - Add byte-order conversions
-            for (int x = 0; x < (int)Constants.RegionSize; x++)
-                for (int y = 0; y < (int)Constants.RegionSize; y++)
-                    bw.Write(val[x, y]);
-
-            return str.ToArray();
-        }
-
-        //         private void fillTerrainRow(DataRow row, UUID regionUUID, int rev, double[,] val)
-        //         {
-        //             row["RegionUUID"] = regionUUID;
-        //             row["Revision"] = rev;
-
-        //             MemoryStream str = new MemoryStream(((int)Constants.RegionSize * (int)Constants.RegionSize)*sizeof (double));
-        //             BinaryWriter bw = new BinaryWriter(str);
-
-        //             // TODO: COMPATIBILITY - Add byte-order conversions
-        //             for (int x = 0; x < (int)Constants.RegionSize; x++)
-        //                 for (int y = 0; y < (int)Constants.RegionSize; y++)
-        //                     bw.Write(val[x, y]);
-
-        //             row["Heightfield"] = str.ToArray();
-        //         }
-
-        /// <summary>
-        ///
-        /// </summary>
         /// <param name="row"></param>
         /// <param name="prim"></param>
         /// <param name="sceneGroupID"></param>
@@ -2019,7 +2034,7 @@ namespace OpenSim.Data.SQLite
             row["SitName"] = prim.SitName;
             row["TouchName"] = prim.TouchName;
             // permissions
-            row["ObjectFlags"] = prim.ObjectFlags;
+            row["ObjectFlags"] = (uint)prim.Flags;
             row["CreatorID"] = prim.CreatorIdentification.ToString();
             row["OwnerID"] = prim.OwnerID.ToString();
             row["GroupID"] = prim.GroupID.ToString();
@@ -2133,6 +2148,28 @@ namespace OpenSim.Data.SQLite
                 row["VolumeDetect"] = 0;
 
             row["MediaURL"] = prim.MediaUrl;
+
+            row["AttachedPosX"] = prim.AttachedPos.X;
+            row["AttachedPosY"] = prim.AttachedPos.Y;
+            row["AttachedPosZ"] = prim.AttachedPos.Z;
+
+            if (prim.DynAttrs.CountNamespaces > 0)
+                row["DynAttrs"] = prim.DynAttrs.ToXml();
+            else
+                row["DynAttrs"] = null;
+
+            row["PhysicsShapeType"] = prim.PhysicsShapeType;
+            row["Density"] = (double)prim.Density;
+            row["GravityModifier"] = (double)prim.GravityModifier;
+            row["Friction"] = (double)prim.Friction;
+            row["Restitution"] = (double)prim.Restitution;
+
+            if (prim.KeyframeMotion != null)
+                row["KeyframeMotion"] = prim.KeyframeMotion.Serialize();
+            else
+                row["KeyframeMotion"] = new Byte[0];
+            
+            
         }
 
         /// <summary>
@@ -2384,6 +2421,7 @@ namespace OpenSim.Data.SQLite
             s.ProfileCurve = Convert.ToByte(row["ProfileCurve"]);
             s.ProfileHollow = Convert.ToUInt16(row["ProfileHollow"]);
             s.State = Convert.ToByte(row["State"]);
+            s.LastAttachPoint = Convert.ToByte(row["LastAttachPoint"]);
 
             byte[] textureEntry = (byte[])row["Texture"];
             s.TextureEntry = textureEntry;
@@ -2392,7 +2430,7 @@ namespace OpenSim.Data.SQLite
 
             if (!(row["Media"] is System.DBNull))
                 s.Media = PrimitiveBaseShape.MediaList.FromXml((string)row["Media"]);
-
+                        
             return s;
         }
 
@@ -2433,6 +2471,7 @@ namespace OpenSim.Data.SQLite
             row["ProfileCurve"] = s.ProfileCurve;
             row["ProfileHollow"] = s.ProfileHollow;
             row["State"] = s.State;
+            row["LastAttachPoint"] = s.LastAttachPoint;
 
             row["Texture"] = s.TextureEntry;
             row["ExtraParams"] = s.ExtraParams;

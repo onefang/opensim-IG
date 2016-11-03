@@ -55,23 +55,6 @@ namespace OpenSim.Services.Interfaces
         List<InventoryFolderBase> GetInventorySkeleton(UUID userId);
 
         /// <summary>
-        /// Synchronous inventory fetch.
-        /// </summary>
-        /// <param name="userID"></param>
-        /// <returns></returns>
-        [Obsolete]
-        InventoryCollection GetUserInventory(UUID userID);
-
-        /// <summary>
-        /// Request the inventory for a user.  This is an asynchronous operation that will call the callback when the
-        /// inventory has been received
-        /// </summary>
-        /// <param name="userID"></param>
-        /// <param name="callback"></param>
-        [Obsolete]
-        void GetUserInventory(UUID userID, InventoryReceiptCallback callback);
-
-        /// <summary>
         /// Retrieve the root inventory folder for the given user.
         /// </summary>
         /// <param name="userID"></param>
@@ -84,15 +67,23 @@ namespace OpenSim.Services.Interfaces
         /// <param name="userID"></param>
         /// <param name="type"></param>
         /// <returns></returns>
-        InventoryFolderBase GetFolderForType(UUID userID, AssetType type);
+        InventoryFolderBase GetFolderForType(UUID userID, FolderType type);
 
         /// <summary>
         /// Gets everything (folders and items) inside a folder
         /// </summary>
         /// <param name="userId"></param>
         /// <param name="folderID"></param>
-        /// <returns></returns>
+        /// <returns>Inventory content.  null if the request failed.</returns>
         InventoryCollection GetFolderContent(UUID userID, UUID folderID);
+
+        /// <summary>
+        /// Gets everything (folders and items) inside a folder
+        /// </summary>
+        /// <param name="userId"></param>
+        /// <param name="folderIDs"></param>
+        /// <returns>Inventory content.</returns>
+        InventoryCollection[] GetMultipleFoldersContent(UUID userID, UUID[] folderIDs);
         
         /// <summary>
         /// Gets the items inside a folder
@@ -171,6 +162,13 @@ namespace OpenSim.Services.Interfaces
         /// <param name="item"></param>
         /// <returns>null if no item was found, otherwise the found item</returns>
         InventoryItemBase GetItem(InventoryItemBase item);
+
+        /// <summary>
+        /// Get multiple items, given by their UUIDs
+        /// </summary>
+        /// <param name="item"></param>
+        /// <returns>null if no item was found, otherwise the found item</returns>
+        InventoryItemBase[] GetMultipleItems(UUID userID, UUID[] ids);
 
         /// <summary>
         /// Get a folder, given by its UUID

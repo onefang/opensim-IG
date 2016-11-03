@@ -259,6 +259,8 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
 
         string osGetScriptEngineName();
         string osGetSimulatorVersion();
+        LSL_Integer osCheckODE();
+        string osGetPhysicsEngineType();
         Object osParseJSONNew(string JSON);
         Hashtable osParseJSON(string JSON);
 
@@ -281,6 +283,8 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         string osGetGridGatekeeperURI();
         string osGetGridCustom(string key);
 
+        string osGetAvatarHomeURI(string uuid);
+
         LSL_String osFormatString(string str, LSL_List strings);
         LSL_List osMatchString(string src, string pattern, int start);
         LSL_String osReplaceString(string src, string pattern, string replace, int count, int start);
@@ -291,6 +295,24 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         string osLoadedCreationID();
 
         LSL_List osGetLinkPrimitiveParams(int linknumber, LSL_List rules);
+
+        /// <summary>
+        /// Identical to llCreateLink() but does not require permission from the owner.
+        /// </summary>
+        /// <param name='target'></param>
+        /// <param name='parent'></param>
+        void osForceCreateLink(string target, int parent);
+
+        /// <summary>
+        /// Identical to llBreakLink() but does not require permission from the owner.
+        /// </summary>
+        /// <param name='linknum'></param>
+        void osForceBreakLink(int linknum);
+
+        /// <summary>
+        /// Identical to llBreakAllLinks() but does not require permission from the owner.
+        /// </summary>
+        void osForceBreakAllLinks();
 
         /// <summary>
         /// Check if the given key is an npc
@@ -333,9 +355,11 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         LSL_Key     osOwnerSaveAppearance(string notecard);
         LSL_Key     osAgentSaveAppearance(key agentId, string notecard);
 
+        key osGetGender(LSL_Key rawAvatarId);
         key osGetMapTexture();
         key osGetRegionMapTexture(string regionName);
         LSL_List osGetRegionStats();
+        vector osGetRegionSize();
 
         int osGetSimulatorMemory();
         void osKickAvatar(string FirstName,string SurName,string alert);
@@ -343,6 +367,8 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         LSL_Float osGetHealth(string avatar);
         void osCauseHealing(string avatar, double healing);
         void osCauseDamage(string avatar, double damage);
+        void osForceOtherSit(string avatar);
+        void osForceOtherSit(string avatar, string target);
         LSL_List osGetPrimitiveParams(LSL_Key prim, LSL_List rules);
         void osSetPrimitiveParams(LSL_Key prim, LSL_List rules);
         void osSetProjectionParams(bool projection, LSL_Key texture, double fov, double focus, double amb);

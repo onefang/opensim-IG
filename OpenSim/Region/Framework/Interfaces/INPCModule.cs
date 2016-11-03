@@ -72,6 +72,32 @@ namespace OpenSim.Region.Framework.Interfaces
                 AvatarAppearance appearance);
 
         /// <summary>
+        /// Create an NPC with a user-supplied agentID
+        /// </summary>
+        /// <param name="firstname"></param>
+        /// <param name="lastname"></param>
+        /// <param name="position"></param>
+        /// <param name="agentID"></param>
+        /// The desired agent ID
+        /// <param name="owner"></param>
+        /// <param name="senseAsAgent">
+        /// Make the NPC show up as an agent on LSL sensors. The default is
+        /// that they show up as the NPC type instead, but this is currently
+        /// an OpenSim-only extension.
+        /// </param>
+        /// <param name="scene"></param>
+        /// <param name="appearance">
+        /// The avatar appearance to use for the new NPC.
+        /// </param>
+        /// <returns>
+        /// The UUID of the ScenePresence created. UUID.Zero if there was a
+        /// failure.
+        /// </returns>
+        UUID CreateNPC(string firstname, string lastname,
+                Vector3 position, UUID agentID, UUID owner, bool senseAsAgent, Scene scene,
+                AvatarAppearance appearance);
+
+        /// <summary>
         /// Check if the agent is an NPC.
         /// </summary>
         /// <param name="agentID"></param>
@@ -96,6 +122,17 @@ namespace OpenSim.Region.Framework.Interfaces
         /// <summary>
         /// Check if the caller has permission to manipulate the given NPC.
         /// </summary>
+        /// <remarks>
+        /// A caller has permission if
+        ///   * An NPC exists with the given npcID.
+        ///   * The caller UUID given is UUID.Zero.
+        ///   * The avatar is unowned (owner is UUID.Zero).
+        ///   * The avatar is owned and the owner and callerID match.
+        ///   * The avatar is owned and the callerID matches its agentID.
+        /// </remarks>
+        /// <param name="av"></param>
+        /// <param name="callerID"></param>
+        /// <returns>true if they do, false if they don't.</returns>
         /// <param name="npcID"></param>
         /// <param name="callerID"></param>
         /// <returns>

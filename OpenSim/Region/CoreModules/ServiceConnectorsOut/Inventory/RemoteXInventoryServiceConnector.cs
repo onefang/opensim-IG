@@ -172,21 +172,12 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Inventory
             return m_RemoteConnector.GetInventorySkeleton(userId);
         }
 
-        public  InventoryCollection GetUserInventory(UUID userID)
-        {
-            return m_RemoteConnector.GetUserInventory(userID);
-        }
-
-        public  void GetUserInventory(UUID userID, InventoryReceiptCallback callback)
-        {
-        }
-
         public InventoryFolderBase GetRootFolder(UUID userID)
         {
             return m_RemoteConnector.GetRootFolder(userID);
         }
 
-        public InventoryFolderBase GetFolderForType(UUID userID, AssetType type)
+        public InventoryFolderBase GetFolderForType(UUID userID, FolderType type)
         {
             return m_RemoteConnector.GetFolderForType(userID, type);
         }
@@ -195,20 +186,27 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Inventory
         {
             InventoryCollection invCol = m_RemoteConnector.GetFolderContent(userID, folderID);
 
-            if (invCol != null && UserManager != null)
-            {
-                // Protect ourselves against the caller subsequently modifying the items list
-                List<InventoryItemBase> items = new List<InventoryItemBase>(invCol.Items);
+            // Commenting this for now, because it's causing more grief than good
+            //if (invCol != null && UserManager != null)
+            //{
+            //    // Protect ourselves against the caller subsequently modifying the items list
+            //    List<InventoryItemBase> items = new List<InventoryItemBase>(invCol.Items);
 
-                if (items != null && items.Count > 0)
-                    Util.FireAndForget(delegate
-                    {
-                        foreach (InventoryItemBase item in items)
-                            UserManager.AddUser(item.CreatorIdAsUuid, item.CreatorData);
-                    });
-            }
+            //    if (items != null && items.Count > 0)
+            //        //Util.FireAndForget(delegate
+            //        //{
+            //            foreach (InventoryItemBase item in items)
+            //                if (!string.IsNullOrEmpty(item.CreatorData))
+            //                    UserManager.AddUser(item.CreatorIdAsUuid, item.CreatorData);
+            //        //});
+            //}
 
             return invCol;
+        }
+
+        public virtual InventoryCollection[] GetMultipleFoldersContent(UUID principalID, UUID[] folderIDs)
+        {
+            return m_RemoteConnector.GetMultipleFoldersContent(principalID, folderIDs);
         }
 
         public  List<InventoryItemBase> GetFolderItems(UUID userID, UUID folderID)
@@ -303,6 +301,14 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Inventory
             if (m_RemoteConnector == null)
                 m_log.DebugFormat("[XINVENTORY CONNECTOR]: connector stub is null!!!");
             return m_RemoteConnector.GetItem(item);
+        }
+
+        public InventoryItemBase[] GetMultipleItems(UUID userID, UUID[] itemIDs)
+        {
+            if (itemIDs == null)
+                return new InventoryItemBase[0];
+
+            return m_RemoteConnector.GetMultipleItems(userID, itemIDs);
         }
 
         public  InventoryFolderBase GetFolder(InventoryFolderBase folder)

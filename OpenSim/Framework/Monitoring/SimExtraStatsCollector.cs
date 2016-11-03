@@ -27,6 +27,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using OpenMetaverse;
 using OpenMetaverse.StructuredData;
@@ -39,8 +41,6 @@ namespace OpenSim.Framework.Monitoring
     /// </summary>
     public class SimExtraStatsCollector : BaseStatsCollector
     {
-        private long abnormalClientThreadTerminations;
-
 //        private long assetsInCache;
 //        private long texturesInCache;
 //        private long assetCacheMemoryUsage;
@@ -72,11 +72,11 @@ namespace OpenSim.Framework.Monitoring
         private volatile float pendingUploads;
         private volatile float activeScripts;
         private volatile float scriptLinesPerSecond;
-
-        /// <summary>
-        /// Number of times that a client thread terminated because of an exception
-        /// </summary>
-        public long AbnormalClientThreadTerminations { get { return abnormalClientThreadTerminations; } }
+        private volatile float m_frameDilation;
+        private volatile float m_usersLoggingIn;
+        private volatile float m_totalGeoPrims;
+        private volatile float m_totalMeshes;
+        private volatile float m_inUseThreads;
 
 //        /// <summary>
 //        /// These statistics are being collected by push rather than pull.  Pull would be simpler, but I had the
@@ -165,11 +165,6 @@ namespace OpenSim.Framework.Monitoring
         /// </summary>
         private IDictionary<UUID, PacketQueueStatsCollector> packetQueueStatsCollectors
             = new Dictionary<UUID, PacketQueueStatsCollector>();
-
-        public void AddAbnormalClientThreadTermination()
-        {
-            abnormalClientThreadTerminations++;
-        }
 
 //        public void AddAsset(AssetBase asset)
 //        {
@@ -260,6 +255,10 @@ namespace OpenSim.Framework.Monitoring
         {
             // FIXME: SimStats shouldn't allow an arbitrary stat packing order (which is inherited from the original
             // SimStatsPacket that was being used).
+
+            // For an unknown reason the original designers decided not to
+            // include the spare MS statistic inside of this class, this is
+            // located inside the StatsBlock at location 21, thus it is skipped
             timeDilation            = stats.StatsBlock[0].StatValue;
             simFps                  = stats.StatsBlock[1].StatValue;
             physicsFps              = stats.StatsBlock[2].StatValue;
@@ -281,6 +280,11 @@ namespace OpenSim.Framework.Monitoring
             pendingUploads          = stats.StatsBlock[18].StatValue;
             activeScripts           = stats.StatsBlock[19].StatValue;
             scriptLinesPerSecond    = stats.StatsBlock[20].StatValue;
+            m_frameDilation         = stats.StatsBlock[22].StatValue;
+            m_usersLoggingIn        = stats.StatsBlock[23].StatValue;
+            m_totalGeoPrims         = stats.StatsBlock[24].StatValue;
+            m_totalMeshes           = stats.StatsBlock[25].StatValue;
+            m_inUseThreads          = stats.StatsBlock[26].StatValue;
         }
 
         /// <summary>
@@ -324,10 +328,12 @@ Asset service request failures: {3}" + Environment.NewLine,
             sb.Append(Environment.NewLine);
             sb.Append("CONNECTION STATISTICS");
             sb.Append(Environment.NewLine);
-            sb.Append(
-                string.Format(
-                    "Abnormal client thread terminations: {0}" + Environment.NewLine,
-                    abnormalClientThreadTerminations));
+
+            List<Stat> stats = StatsManager.GetStatsFromEachContainer("clientstack", "ClientLogoutsDueToNoReceives");
+
+            sb.AppendFormat(
+                "Client logouts due to no data receive timeout: {0}\n\n", 
+                stats != null ? stats.Sum(s => s.Value).ToString() : "unknown");
 
 //            sb.Append(Environment.NewLine);
 //            sb.Append("INVENTORY STATISTICS");
@@ -338,7 +344,7 @@ Asset service request failures: {3}" + Environment.NewLine,
 //                    InventoryServiceRetrievalFailures));
 
             sb.Append(Environment.NewLine);
-            sb.Append("FRAME STATISTICS");
+            sb.Append("SAMPLE FRAME STATISTICS");
             sb.Append(Environment.NewLine);
             sb.Append("Dilatn  SimFPS  PhyFPS  AgntUp  RootAg  ChldAg  Prims   AtvPrm  AtvScr  ScrLPS");
             sb.Append(Environment.NewLine);
@@ -359,11 +365,12 @@ Asset service request failures: {3}" + Environment.NewLine,
                     inPacketsPerSecond, outPacketsPerSecond, pendingDownloads, pendingUploads, unackedBytes, totalFrameTime,
                     netFrameTime, physicsFrameTime, otherFrameTime, agentFrameTime, imageFrameTime));
 
-            Dictionary<string, Dictionary<string, Stat>> sceneStats;
-
+            /* 20130319 RA: For the moment, disable the dump of 'scene' catagory as they are mostly output by
+             * the two formatted printouts above.
+            SortedDictionary<string, SortedDictionary<string, Stat>> sceneStats;
             if (StatsManager.TryGetStats("scene", out sceneStats))
             {
-                foreach (KeyValuePair<string, Dictionary<string, Stat>> kvp in sceneStats)
+                foreach (KeyValuePair<string, SortedDictionary<string, Stat>> kvp in sceneStats)
                 {
                     foreach (Stat stat in kvp.Value.Values)
                     {
@@ -374,6 +381,7 @@ Asset service request failures: {3}" + Environment.NewLine,
                     }
                 }
             }
+             */
 
             /*
             sb.Append(Environment.NewLine);
@@ -405,6 +413,36 @@ Asset service request failures: {3}" + Environment.NewLine,
         /// <returns></returns>
         public override string XReport(string uptime, string version)
         {
+            return OSDParser.SerializeJsonString(OReport(uptime, version));
+        }
+
+        /// <summary>
+        /// Report back collected statistical information as an OSDMap
+        /// </summary>
+        /// <returns></returns>
+        public override OSDMap OReport(string uptime, string version)
+        {
+            // Get the amount of physical memory, allocated with the instance of this program, in kilobytes;
+            // the working set is the set of memory pages currently visible to this program in physical RAM
+            // memory and includes both shared (e.g. system libraries) and private data
+            double memUsage = Process.GetCurrentProcess().WorkingSet64 / 1024.0;
+
+            // Get the number of threads from the system that are currently
+            // running
+            int numberThreadsRunning = 0;
+            foreach (ProcessThread currentThread in
+                Process.GetCurrentProcess().Threads)
+            {
+                // A known issue with the current process .Threads property is 
+                // that it can return null threads, thus don't count those as 
+                // running threads and prevent the program function from failing
+                if (currentThread != null && 
+                    currentThread.ThreadState == ThreadState.Running)
+                {
+                    numberThreadsRunning++;
+                }
+            }
+
             OSDMap args = new OSDMap(30);
 //            args["AssetsInCache"] = OSD.FromString (String.Format ("{0:0.##}", AssetsInCache));
 //            args["TimeAfterCacheMiss"] = OSD.FromString (String.Format ("{0:0.##}",
@@ -441,13 +479,27 @@ Asset service request failures: {3}" + Environment.NewLine,
             args["Memory"] = OSD.FromString (base.XReport (uptime, version));
             args["Uptime"] = OSD.FromString (uptime);
             args["Version"] = OSD.FromString (version);
-            
-            string strBuffer = "";
-            strBuffer = OSDParser.SerializeJsonString(args);
 
-            return strBuffer;
+            args["FrameDilatn"] = OSD.FromString(String.Format("{0:0.##}", m_frameDilation));
+            args["Logging in Users"] = OSD.FromString(String.Format("{0:0.##}",
+                m_usersLoggingIn));
+            args["GeoPrims"] = OSD.FromString(String.Format("{0:0.##}",
+                m_totalGeoPrims));
+            args["Mesh Objects"] = OSD.FromString(String.Format("{0:0.##}",
+                m_totalMeshes));
+            args["XEngine Thread Count"] = OSD.FromString(String.Format("{0:0.##}",
+                m_inUseThreads));
+            args["Util Thread Count"] = OSD.FromString(String.Format("{0:0.##}",
+                Util.GetSmartThreadPoolInfo().InUseThreads));
+            args["System Thread Count"] = OSD.FromString(String.Format(
+                "{0:0.##}", numberThreadsRunning));
+            args["ProcMem"] = OSD.FromString(String.Format("{0:#,###,###.##}",
+                memUsage));
+            
+            return args;
         }
     }
+
 
     /// <summary>
     /// Pull packet queue stats from packet queues and report
@@ -473,6 +525,12 @@ Asset service request failures: {3}" + Environment.NewLine,
         public string XReport(string uptime, string version)
         {
             return "";
+        }
+        
+        public OSDMap OReport(string uptime, string version)
+        {
+            OSDMap ret = new OSDMap();
+            return ret;
         }
     }
 }

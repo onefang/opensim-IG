@@ -105,6 +105,7 @@ namespace OpenSim.Framework
         private ushort _profileHollow;
         private Vector3 _scale;
         private byte _state;
+        private byte _lastattach;
         private ProfileShape _profileShape;
         private HollowShape _hollowShape;
 
@@ -207,6 +208,7 @@ namespace OpenSim.Framework
             PCode = (byte)prim.PrimData.PCode;
 
             State = prim.PrimData.State;
+            LastAttachPoint = prim.PrimData.State;
             PathBegin = Primitive.PackBeginCut(prim.PrimData.PathBegin);
             PathEnd = Primitive.PackEndCut(prim.PrimData.PathEnd);
             PathScaleX = Primitive.PackPathScale(prim.PrimData.PathScaleX);
@@ -583,6 +585,15 @@ namespace OpenSim.Framework
             }
         }
 
+        public byte LastAttachPoint {
+            get {
+                return _lastattach;
+            }
+            set {
+                _lastattach = value;
+            }
+        }
+
         public ProfileShape ProfileShape {
             get {
                 return _profileShape;
@@ -622,6 +633,8 @@ namespace OpenSim.Framework
             }
         }
 
+        // This is only used at runtime. For sculpties this holds the texture data, and for meshes
+        // the mesh data.
         public byte[] SculptData
         {
             get
@@ -1147,14 +1160,13 @@ namespace OpenSim.Framework
 
         public void ReadSculptData(byte[] data, int pos)
         {
-            byte[] SculptTextureUUID = new byte[16];
-            UUID SculptUUID = UUID.Zero;
-            byte SculptTypel = data[16+pos];
+            UUID SculptUUID;
+            byte SculptTypel;
 
-            if (data.Length+pos >= 17)
+            if (data.Length-pos >= 17)
             {
                 _sculptEntry = true;
-                SculptTextureUUID = new byte[16];
+                byte[] SculptTextureUUID = new byte[16];
                 SculptTypel = data[16 + pos];
                 Array.Copy(data, pos, SculptTextureUUID,0, 16);
                 SculptUUID = new UUID(SculptTextureUUID, 0);

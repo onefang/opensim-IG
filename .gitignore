@@ -10,6 +10,12 @@
 *.pidb
 *.dll.build
 *.dll
+
+# Ignore .user and .suo files as these are user preference specific
+# http://stackoverflow.com/questions/72298/should-i-add-the-visual-studio-suo-and-user-files-to-source-control
+*.suo
+*.user
+
 *.VisualState.xml
 */*/obj
 */*/*/obj
@@ -48,9 +54,11 @@ bin/Regions/*
 bin/UserAssets
 bin/assetcache
 bin/maptiles
+bin/bakes
 bin/estate_settings.xml
 bin/config-include/CenomeCache.ini
 bin/config-include/FlotsamCache.ini
+bin/config-include/GridCommon.ini
 bin/config-include/StandaloneCommon.ini
 bin/OpenSim.Grid.AssetInventoryServer.log
 bin/OpenSim.Grid.AssetServer.log
@@ -59,12 +67,17 @@ bin/OpenSim.Grid.InventoryServer.log
 bin/OpenSim.Grid.MessagingServer.log
 bin/OpenSim.Grid.UserServer.log
 bin/OpenSim.log
+bin/OpenSimStats.log
+bin/Robust.log
+bin/RobustStats.log
+bin/OpenSimConsoleHistory.txt
+bin/RobustConsoleHistory.txt
+bin/*.Tests.log
 bin/*.manifest
 bin/crashes/
 Examples/*.dll
 OpenSim.build
 OpenSim.sln
-OpenSim.suo
 OpenSim.userprefs
 Prebuild/Prebuild.build
 Prebuild/Prebuild.sln
@@ -77,6 +90,7 @@ TAGS
 Makefile.local
 bin/.version
 compile.bat
+addon-modules
 OpenSim/Data/Tests/test-results/
 OpenSim/Framework/Serialization/Tests/test-results/
 OpenSim/Framework/Servers/Tests/test-results/
@@ -95,3 +109,5 @@ OpenSim/Tests/test-results/
 test-results/
 doc/html
 doc/doxygen.error.log
+
+*.patch

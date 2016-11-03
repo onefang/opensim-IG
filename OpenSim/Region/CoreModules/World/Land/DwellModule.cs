@@ -45,17 +45,19 @@ using OpenSim.Framework.Servers.HttpServer;
 using OpenSim.Region.CoreModules.Framework.InterfaceCommander;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
-using OpenSim.Region.Physics.Manager;
+using OpenSim.Region.PhysicsModules.SharedBase;
 using OpenSim.Services.Interfaces;
 using Caps = OpenSim.Framework.Capabilities.Caps;
 using GridRegion = OpenSim.Services.Interfaces.GridRegion;
 
 namespace OpenSim.Region.CoreModules.World.Land
 {
-    [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "DwellModule")]
-    public class DwellModule : IDwellModule, INonSharedRegionModule
+    [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "DefaultDwellModule")]
+    public class DefaultDwellModule : IDwellModule, INonSharedRegionModule
     {
         private Scene m_scene;
+        private IConfigSource m_Config;
+        private bool m_Enabled = false;
 
         public Type ReplaceableInterface
         {
@@ -64,15 +66,27 @@ namespace OpenSim.Region.CoreModules.World.Land
 
         public string Name
         {
-            get { return "DwellModule"; }
+            get { return "DefaultDwellModule"; }
         }
 
         public void Initialise(IConfigSource source)
         {
+            m_Config = source;
+
+            IConfig DwellConfig = m_Config.Configs ["Dwell"];
+
+            if (DwellConfig == null) {
+                m_Enabled = false;
+                return;
+            }
+            m_Enabled = (DwellConfig.GetString ("DwellModule", "DefaultDwellModule") == "DefaultDwellModule");
         }
 
         public void AddRegion(Scene scene)
         {
+            if (!m_Enabled)
+                return;
+
             m_scene = scene;
 
             m_scene.EventManager.OnNewClient += OnNewClient;

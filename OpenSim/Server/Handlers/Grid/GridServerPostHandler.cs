@@ -40,6 +40,7 @@ using OpenSim.Server.Base;
 using OpenSim.Services.Interfaces;
 using GridRegion = OpenSim.Services.Interfaces.GridRegion;
 using OpenSim.Framework;
+using OpenSim.Framework.ServiceAuth;
 using OpenSim.Framework.Servers.HttpServer;
 using OpenMetaverse;
 
@@ -49,15 +50,19 @@ namespace OpenSim.Server.Handlers.Grid
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+#pragma warning disable 414
+        private static string LogHeader = "[GRID HANDLER]";
+#pragma warning restore 414
+
         private IGridService m_GridService;
 
-        public GridServerPostHandler(IGridService service) :
-                base("POST", "/grid")
+        public GridServerPostHandler(IGridService service, IServiceAuth auth) :
+                base("POST", "/grid", auth)
         {
             m_GridService = service;
         }
 
-        public override byte[] Handle(string path, Stream requestData,
+        protected override byte[] ProcessRequest(string path, Stream requestData,
                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
             StreamReader sr = new StreamReader(requestData);
@@ -106,6 +111,9 @@ namespace OpenSim.Server.Handlers.Grid
                     case "get_default_regions":
                         return GetDefaultRegions(request);
 
+                    case "get_default_hypergrid_regions":
+                        return GetDefaultHypergridRegions(request);
+
                     case "get_fallback_regions":
                         return GetFallbackRegions(request);
 
@@ -114,6 +122,9 @@ namespace OpenSim.Server.Handlers.Grid
 
                     case "get_region_flags":
                         return GetRegionFlags(request);
+
+                    case "get_grid_extra_features":
+                        return GetGridExtraFeatures(request);
                 }
                 
                 m_log.DebugFormat("[GRID HANDLER]: unknown method request {0}", method);
@@ -148,7 +159,24 @@ namespace OpenSim.Server.Handlers.Grid
                 m_log.WarnFormat("[GRID HANDLER]: no maximum protocol version in request to register region");
 
             // Check the protocol version
-            if ((versionNumberMin > ProtocolVersions.ServerProtocolVersionMax && versionNumberMax < ProtocolVersions.ServerProtocolVersionMax))
+            // This is how it works:
+            // Example 1:
+            //   Client: [0 0]
+            //   Server:       [1 1]
+            //   ==> fail
+            // Example 2:
+            //   Client:       [1 1]
+            //   Server: [0 0]
+            //   ==> fail
+            // Example 3:
+            //   Client: [0 1]
+            //   Server:   [1 1]
+            //   ==> success
+            // Example 4:
+            //   Client:   [1 1]
+            //   Server: [0 1]
+            //   ==> success
+            if ((versionNumberMin > ProtocolVersions.ServerProtocolVersionMax || versionNumberMax < ProtocolVersions.ServerProtocolVersionMin))
             {
                 // Can't do, there is no overlap in the acceptable ranges
                 return FailureResult();
@@ -278,8 +306,8 @@ namespace OpenSim.Server.Handlers.Grid
             else
                 m_log.WarnFormat("[GRID HANDLER]: no Y in request to get region by position");
 
+            // m_log.DebugFormat("{0} GetRegionByPosition: loc=<{1},{2}>", LogHeader, x, y);
             GridRegion rinfo = m_GridService.GetRegionByPosition(scopeID, x, y);
-            //m_log.DebugFormat("[GRID HANDLER]: neighbours for region {0}: {1}", regionID, rinfos.Count);
 
             Dictionary<string, object> result = new Dictionary<string, object>();
             if (rinfo == null)
@@ -444,6 +472,36 @@ namespace OpenSim.Server.Handlers.Grid
             return Util.UTF8NoBomEncoding.GetBytes(xmlString);
         }
 
+        byte[] GetDefaultHypergridRegions(Dictionary<string, object> request)
+        {
+            //m_log.DebugFormat("[GRID HANDLER]: GetDefaultRegions");
+            UUID scopeID = UUID.Zero;
+            if (request.ContainsKey("SCOPEID"))
+                UUID.TryParse(request["SCOPEID"].ToString(), out scopeID);
+            else
+                m_log.WarnFormat("[GRID HANDLER]: no scopeID in request to get region range");
+
+            List<GridRegion> rinfos = m_GridService.GetDefaultHypergridRegions(scopeID);
+
+            Dictionary<string, object> result = new Dictionary<string, object>();
+            if ((rinfos == null) || ((rinfos != null) && (rinfos.Count == 0)))
+                result["result"] = "null";
+            else
+            {
+                int i = 0;
+                foreach (GridRegion rinfo in rinfos)
+                {
+                    Dictionary<string, object> rinfoDict = rinfo.ToKeyValuePairs();
+                    result["region" + i] = rinfoDict;
+                    i++;
+                }
+            }
+            string xmlString = ServerUtils.BuildXmlResponse(result);
+
+            //m_log.DebugFormat("[GRID HANDLER]: resp string: {0}", xmlString);
+            return Util.UTF8NoBomEncoding.GetBytes(xmlString);
+        }
+
         byte[] GetFallbackRegions(Dictionary<string, object> request)
         {
             //m_log.DebugFormat("[GRID HANDLER]: GetRegionRange");
@@ -540,6 +598,22 @@ namespace OpenSim.Server.Handlers.Grid
             //m_log.DebugFormat("[GRID HANDLER]: resp string: {0}", xmlString);
             return Util.UTF8NoBomEncoding.GetBytes(xmlString);
         }
+        
+        byte[] GetGridExtraFeatures(Dictionary<string, object> request)
+        {
+
+            Dictionary<string, object> result = new Dictionary<string, object> ();
+            Dictionary<string, object> extraFeatures = m_GridService.GetExtraFeatures ();
+
+            foreach (string key in extraFeatures.Keys) 
+            {
+                result [key] = extraFeatures [key];
+            }
+
+            string xmlString = ServerUtils.BuildXmlResponse(result);
+
+            return Util.UTF8NoBomEncoding.GetBytes(xmlString);
+        }
 
         #endregion
 
@@ -564,7 +638,7 @@ namespace OpenSim.Server.Handlers.Grid
 
             rootElement.AppendChild(result);
 
-            return DocToBytes(doc);
+            return Util.DocToBytes(doc);
         }
 
         private byte[] FailureResult()
@@ -596,18 +670,7 @@ namespace OpenSim.Server.Handlers.Grid
 
             rootElement.AppendChild(message);
 
-            return DocToBytes(doc);
-        }
-
-        private byte[] DocToBytes(XmlDocument doc)
-        {
-            MemoryStream ms = new MemoryStream();
-            XmlTextWriter xw = new XmlTextWriter(ms, null);
-            xw.Formatting = Formatting.Indented;
-            doc.WriteTo(xw);
-            xw.Flush();
-
-            return ms.ToArray();
+            return Util.DocToBytes(doc);
         }
 
         #endregion

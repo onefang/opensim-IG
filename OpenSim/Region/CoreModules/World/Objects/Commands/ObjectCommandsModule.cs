@@ -416,7 +416,7 @@ namespace OpenSim.Region.CoreModules.World.Objects.Commands
 
             if (!ConsoleUtil.TryParseConsoleMinVector(rawConsoleStartVector, out startVector))
             {
-                m_console.OutputFormat("Error: Start vector {0} does not have a valid format", rawConsoleStartVector);
+                m_console.OutputFormat("Error: Start vector '{0}' does not have a valid format", rawConsoleStartVector);
                 return;
             }
 
@@ -425,7 +425,7 @@ namespace OpenSim.Region.CoreModules.World.Objects.Commands
 
             if (!ConsoleUtil.TryParseConsoleMaxVector(rawConsoleEndVector, out endVector))
             {
-                m_console.OutputFormat("Error: End vector {0} does not have a valid format", rawConsoleEndVector);
+                m_console.OutputFormat("Error: End vector '{0}' does not have a valid format", rawConsoleEndVector);
                 return;
             }
 
@@ -546,7 +546,7 @@ namespace OpenSim.Region.CoreModules.World.Objects.Commands
         {
             ConsoleDisplayList cdl = new ConsoleDisplayList();
             cdl.AddRow("Name", so.Name);
-            cdl.AddRow("Descrition", so.Description);
+            cdl.AddRow("Description", so.Description);
             cdl.AddRow("Local ID", so.LocalId);
             cdl.AddRow("UUID", so.UUID);
             cdl.AddRow("Location", string.Format("{0} @ {1}", so.AbsolutePosition, so.Scene.Name));
@@ -597,6 +597,7 @@ namespace OpenSim.Region.CoreModules.World.Objects.Commands
                 cdl.AddRow("LightFalloff", s.LightFalloff);
                 cdl.AddRow("LightIntensity", s.LightIntensity);
                 cdl.AddRow("LightRadius", s.LightRadius);
+                cdl.AddRow("Location (relative)", sop.RelativePosition);
                 cdl.AddRow("Media", string.Format("{0} entries", s.Media != null ? s.Media.Count.ToString() : "n/a"));
                 cdl.AddRow("PathBegin", s.PathBegin);
                 cdl.AddRow("PathEnd", s.PathEnd);
@@ -619,6 +620,8 @@ namespace OpenSim.Region.CoreModules.World.Objects.Commands
                 cdl.AddRow("ProjectionFocus", s.ProjectionFocus);
                 cdl.AddRow("ProjectionFOV", s.ProjectionFOV);
                 cdl.AddRow("ProjectionTextureUUID", s.ProjectionTextureUUID);
+                cdl.AddRow("Rotation (Relative)", sop.RotationOffset);
+                cdl.AddRow("Rotation (World)", sop.GetWorldRotation());
                 cdl.AddRow("Scale", s.Scale);
                 cdl.AddRow(
                     "SculptData", 
@@ -628,7 +631,22 @@ namespace OpenSim.Region.CoreModules.World.Objects.Commands
                 cdl.AddRow("SculptType", s.SculptType);
                 cdl.AddRow("State", s.State);
 
-                // TODO, unpack and display texture entries
+                // TODO, need to display more information about textures but in a compact format
+                // to stop output becoming huge.
+                for (int i = 0; i < sop.GetNumberOfSides(); i++)               
+                {
+                    Primitive.TextureEntryFace teFace = s.Textures.FaceTextures[i];
+
+                    UUID textureID;
+
+                    if (teFace != null)
+                        textureID = teFace.TextureID;
+                    else
+                        textureID = s.Textures.DefaultTexture.TextureID;
+
+                    cdl.AddRow(string.Format("Face {0} texture ID", i), textureID);
+                }
+
                 //cdl.AddRow("Textures", string.Format("{0} entries", s.Textures.
             }
 
@@ -896,17 +914,17 @@ namespace OpenSim.Region.CoreModules.World.Objects.Commands
 
             if (!ConsoleUtil.TryParseConsoleMinVector(rawConsoleStartVector, out startVector))
             {
-                m_console.OutputFormat("Error: Start vector {0} does not have a valid format", rawConsoleStartVector);
+                m_console.OutputFormat("Error: Start vector '{0}' does not have a valid format", rawConsoleStartVector);
                 endVector = Vector3.Zero;
                 
                 return false;
             }
 
-            string rawConsoleEndVector = rawComponents.Skip(1).Take(1).Single();
+            string rawConsoleEndVector = rawComponents.Skip(2).Take(1).Single();
 
             if (!ConsoleUtil.TryParseConsoleMaxVector(rawConsoleEndVector, out endVector))
             {
-                m_console.OutputFormat("Error: End vector {0} does not have a valid format", rawConsoleEndVector);
+                m_console.OutputFormat("Error: End vector '{0}' does not have a valid format", rawConsoleEndVector);
                 return false;
             }
 

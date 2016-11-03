@@ -44,7 +44,9 @@ namespace OpenSim.Server.Handlers.Hypergrid
         public HeloServiceInConnector(IConfigSource config, IHttpServer server, string configName) :
                 base(config, server, configName)
         {
+#pragma warning disable 0612
             server.AddStreamHandler(new HeloServerGetHandler("opensim-robust"));
+#pragma warning restore 0612
             server.AddStreamHandler(new HeloServerHeadHandler("opensim-robust"));
         }
     }
@@ -91,7 +93,7 @@ namespace OpenSim.Server.Handlers.Hypergrid
             m_HandlersType = handlersType;
         }
 
-        public override byte[] Handle(string path, Stream requestData,
+        protected override byte[] ProcessRequest(string path, Stream requestData,
                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
             return OKResponse(httpResponse);

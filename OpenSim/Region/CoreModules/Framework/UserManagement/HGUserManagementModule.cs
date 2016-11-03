@@ -50,16 +50,15 @@ namespace OpenSim.Region.CoreModules.Framework.UserManagement
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-
         #region ISharedRegionModule
 
         public new void Initialise(IConfigSource config)
         {
-            string umanmod = config.Configs["Modules"].GetString("UserManagementModule", base.Name);
+            string umanmod = config.Configs["Modules"].GetString("UserManagementModule", null);
             if (umanmod == Name)
             {
                 m_Enabled = true;
-                RegisterConsoleCmds();
+                Init();
                 m_log.DebugFormat("[USER MANAGEMENT MODULE]: {0} is enabled", Name);
             }
         }
@@ -71,7 +70,7 @@ namespace OpenSim.Region.CoreModules.Framework.UserManagement
 
         #endregion ISharedRegionModule
 
-        protected override void AddAdditionalUsers(UUID avatarID, string query, List<UserData> users)
+        protected override void AddAdditionalUsers(string query, List<UserData> users)
         {
             if (query.Contains("@"))  // First.Last@foo.com, maybe?
             {
@@ -131,7 +130,17 @@ namespace OpenSim.Region.CoreModules.Framework.UserManagement
                         }
 
                         UserAgentServiceConnector uasConn = new UserAgentServiceConnector(uriStr);
-                        UUID userID = uasConn.GetUUID(names[0], names[1]);
+                        
+                        UUID userID = UUID.Zero;
+                        try
+                        {
+                            userID = uasConn.GetUUID(names[0], names[1]);
+                        }
+                        catch (Exception e)
+                        {
+                            m_log.Debug("[USER MANAGEMENT MODULE]: GetUUID call failed ", e);
+                        }
+                        
                         if (!userID.Equals(UUID.Zero))
                         {
                             UserData ud = new UserData();

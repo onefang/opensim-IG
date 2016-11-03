@@ -49,14 +49,14 @@ namespace OpenSim.Framework.Console
     = @"Each component of the coord is comma separated.  There must be no spaces between the commas.
     If you don't care about the z component you can simply omit it.
     If you don't care about the x or y components then you can leave them blank (though a comma is still required)
-    If you want to specify the maxmimum value of a component then you can use ~ instead of a number
+    If you want to specify the maximum value of a component then you can use ~ instead of a number
     If you want to specify the minimum value of a component then you can use -~ instead of a number
     e.g.
-    delete object pos 20,20,20 to 40,40,40
+    show object pos 20,20,20 to 40,40,40
     delete object pos 20,20 to 40,40
-    delete object pos ,20,20 to ,40,40
+    show object pos ,20,20 to ,40,40
     delete object pos ,,30 to ,,~
-    delete object pos ,,-~ to ,,30";
+    show object pos ,,-~ to ,,30";
     
         public const string MinRawConsoleVectorValue = "-~";
         public const string MaxRawConsoleVectorValue = "~";
@@ -156,11 +156,31 @@ namespace OpenSim.Framework.Console
         }
 
         /// <summary>
-        /// Convert a minimum vector input from the console to an OpenMetaverse.Vector3
+        /// Convert a console input to a bool, automatically complaining if a console is given.
         /// </summary>
         /// <param name='console'>Can be null if no console is available.</param>
         /// <param name='rawConsoleVector'>/param>
         /// <param name='vector'></param>
+        /// <returns></returns>
+        public static bool TryParseConsoleBool(ICommandConsole console, string rawConsoleString, out bool b)
+        {
+            if (!bool.TryParse(rawConsoleString, out b))
+            {
+                if (console != null)
+                    console.OutputFormat("ERROR: {0} is not a true or false value", rawConsoleString);
+
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Convert a console input to an int, automatically complaining if a console is given.
+        /// </summary>
+        /// <param name='console'>Can be null if no console is available.</param>
+        /// <param name='rawConsoleInt'>/param>
+        /// <param name='i'></param>
         /// <returns></returns>
         public static bool TryParseConsoleInt(ICommandConsole console, string rawConsoleInt, out int i)
         {
@@ -173,6 +193,71 @@ namespace OpenSim.Framework.Console
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Convert a console input to a float, automatically complaining if a console is given.
+        /// </summary>
+        /// <param name='console'>Can be null if no console is available.</param>
+        /// <param name='rawConsoleInput'>/param>
+        /// <param name='i'></param>
+        /// <returns></returns>
+        public static bool TryParseConsoleFloat(ICommandConsole console, string rawConsoleInput, out float i)
+        {
+            if (!float.TryParse(rawConsoleInput, out i))
+            {
+                if (console != null)
+                    console.OutputFormat("ERROR: {0} is not a valid float", rawConsoleInput);
+
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Convert a console input to a double, automatically complaining if a console is given.
+        /// </summary>
+        /// <param name='console'>Can be null if no console is available.</param>
+        /// <param name='rawConsoleInput'>/param>
+        /// <param name='i'></param>
+        /// <returns></returns>
+        public static bool TryParseConsoleDouble(ICommandConsole console, string rawConsoleInput, out double i)
+        {
+            if (!double.TryParse(rawConsoleInput, out i))
+            {
+                if (console != null)
+                    console.OutputFormat("ERROR: {0} is not a valid double", rawConsoleInput);
+
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Convert a console integer to a natural int, automatically complaining if a console is given.
+        /// </summary>
+        /// <param name='console'>Can be null if no console is available.</param>
+        /// <param name='rawConsoleInt'>/param>
+        /// <param name='i'></param>
+        /// <returns></returns>
+        public static bool TryParseConsoleNaturalInt(ICommandConsole console, string rawConsoleInt, out int i)
+        {
+            if (TryParseConsoleInt(console, rawConsoleInt, out i))
+            {
+                if (i < 0)
+                {
+                    if (console != null)
+                        console.OutputFormat("ERROR: {0} is not a positive integer", rawConsoleInt);
+
+                    return false;
+                }
+
+                return true;
+            }
+
+            return false;
         }
     
         /// <summary>
@@ -207,24 +292,82 @@ namespace OpenSim.Framework.Console
         /// The strings "~" and "-~" are valid in components.  The first substitutes float.MaxValue whilst the second is float.MinValue
         /// Other than that, component values must be numeric.
         /// </param>
-        /// <param name='blankComponentFunc'></param>
+        /// <param name='blankComponentFunc'>
+        /// Behaviour if component is blank.  If null then conversion fails on a blank component.
+        /// </param>
         /// <param name='vector'></param>
         /// <returns></returns>
         public static bool TryParseConsoleVector(
             string rawConsoleVector, Func<string, string> blankComponentFunc, out Vector3 vector)
         {
-            List<string> components = rawConsoleVector.Split(VectorSeparatorChars).ToList();
-    
-            if (components.Count < 1 || components.Count > 3)
+            return Vector3.TryParse(CookVector(rawConsoleVector, 3, blankComponentFunc), out vector);
+        }
+
+        /// <summary>
+        /// Convert a vector input from the console to an OpenMetaverse.Vector2
+        /// </summary>
+        /// <param name='rawConsoleVector'>
+        /// A string in the form <x>,<y> where there is no space between values.
+        /// Any component can be missing (e.g. ,40).  blankComponentFunc is invoked to replace the blank with a suitable value
+        /// Also, if the blank component is at the end, then the comma can be missed off entirely (e.g. 40)
+        /// The strings "~" and "-~" are valid in components.  The first substitutes float.MaxValue whilst the second is float.MinValue
+        /// Other than that, component values must be numeric.
+        /// </param>
+        /// <param name='blankComponentFunc'>
+        /// Behaviour if component is blank.  If null then conversion fails on a blank component.
+        /// </param>
+        /// <param name='vector'></param>
+        /// <returns></returns>
+        public static bool TryParseConsole2DVector(
+            string rawConsoleVector, Func<string, string> blankComponentFunc, out Vector2 vector)
+        {
+            // We don't use Vector2.TryParse() for now because for some reason it expects an input with 3 components
+            // rather than 2.
+            string cookedVector = CookVector(rawConsoleVector, 2, blankComponentFunc);
+
+            if (cookedVector == null)
             {
-                vector = Vector3.Zero;
+                vector = Vector2.Zero;
+
                 return false;
             }
+            else
+            {
+                string[] cookedComponents = cookedVector.Split(VectorSeparatorChars);
+
+                vector = new Vector2(float.Parse(cookedComponents[0]), float.Parse(cookedComponents[1]));
+
+                return true;
+            }
+
+            //return Vector2.TryParse(CookVector(rawConsoleVector, 2, blankComponentFunc), out vector);
+        }
+
+        /// <summary>
+        /// Convert a raw console vector into a vector that can be be parsed by the relevant OpenMetaverse.TryParse()
+        /// </summary>
+        /// <param name='rawConsoleVector'></param>
+        /// <param name='dimensions'></param>
+        /// <param name='blankComponentFunc'></param>
+        /// <returns>null if conversion was not possible</returns>
+        private static string CookVector(
+            string rawConsoleVector, int dimensions, Func<string, string> blankComponentFunc)
+        {
+            List<string> components = rawConsoleVector.Split(VectorSeparatorChars).ToList();
     
-            for (int i = components.Count; i < 3; i++)
-                components.Add("");
+            if (components.Count < 1 || components.Count > dimensions)
+                return null;
     
-            List<string> semiDigestedComponents
+            if (components.Count < dimensions)
+            {
+                if (blankComponentFunc == null)
+                    return null;
+                else
+                    for (int i = components.Count; i < dimensions; i++)
+                        components.Add("");
+            }
+
+            List<string> cookedComponents
                 = components.ConvertAll<string>(
                     c =>
                     {
@@ -238,11 +381,7 @@ namespace OpenSim.Framework.Console
                             return c;
                     });
     
-            string semiDigestedConsoleVector = string.Join(VectorSeparator, semiDigestedComponents.ToArray());
-    
-    //        m_log.DebugFormat("[CONSOLE UTIL]: Parsing {0} into OpenMetaverse.Vector3", semiDigestedConsoleVector);
-    
-            return Vector3.TryParse(semiDigestedConsoleVector, out vector);
+            return string.Join(VectorSeparator, cookedComponents.ToArray());
         }
     }
 }

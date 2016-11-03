@@ -39,6 +39,7 @@ using System.Collections.Generic;
 using OpenSim.Server.Base;
 using OpenSim.Services.Interfaces;
 using OpenSim.Framework;
+using OpenSim.Framework.ServiceAuth;
 using OpenSim.Framework.Servers.HttpServer;
 using OpenMetaverse;
 
@@ -50,13 +51,13 @@ namespace OpenSim.Server.Handlers.GridUser
 
         private IGridUserService m_GridUserService;
 
-        public GridUserServerPostHandler(IGridUserService service) :
-                base("POST", "/griduser")
+        public GridUserServerPostHandler(IGridUserService service, IServiceAuth auth) :
+                base("POST", "/griduser", auth)
         {
             m_GridUserService = service;
         }
 
-        public override byte[] Handle(string path, Stream requestData,
+        protected override byte[] ProcessRequest(string path, Stream requestData,
                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
             StreamReader sr = new StreamReader(requestData);
@@ -185,10 +186,12 @@ namespace OpenSim.Server.Handlers.GridUser
             GridUserInfo guinfo = m_GridUserService.GetGridUserInfo(user);
 
             Dictionary<string, object> result = new Dictionary<string, object>();
-            result["result"] = guinfo.ToKeyValuePairs();
+            if (guinfo != null)
+                result["result"] = guinfo.ToKeyValuePairs();
+            else
+                result["result"] = "null";
 
             string xmlString = ServerUtils.BuildXmlResponse(result);
-
             //m_log.DebugFormat("[GRID USER HANDLER]: resp string: {0}", xmlString);
             return Util.UTF8NoBomEncoding.GetBytes(xmlString);
         }
@@ -276,7 +279,7 @@ namespace OpenSim.Server.Handlers.GridUser
 
             rootElement.AppendChild(result);
 
-            return DocToBytes(doc);
+            return Util.DocToBytes(doc);
         }
 
         private byte[] FailureResult()
@@ -298,20 +301,8 @@ namespace OpenSim.Server.Handlers.GridUser
 
             rootElement.AppendChild(result);
 
-            return DocToBytes(doc);
+            return Util.DocToBytes(doc);
         }
-
-        private byte[] DocToBytes(XmlDocument doc)
-        {
-            MemoryStream ms = new MemoryStream();
-            XmlTextWriter xw = new XmlTextWriter(ms, null);
-            xw.Formatting = Formatting.Indented;
-            doc.WriteTo(xw);
-            xw.Flush();
-
-            return ms.ToArray();
-        }
-
 
     }
 }

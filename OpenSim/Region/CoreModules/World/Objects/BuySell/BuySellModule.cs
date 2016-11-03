@@ -38,6 +38,7 @@ using OpenSim.Region.Framework;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Scenes.Serialization;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.CoreModules.World.Objects.BuySell
 {
@@ -140,6 +141,7 @@ namespace OpenSim.Region.CoreModules.World.Objects.BuySell
 
                 part.ObjectSaleType = 0;
                 part.SalePrice = 10;
+                part.ClickAction = Convert.ToByte(0);
 
                 group.HasGroupChanged = true;
                 part.SendPropertiesToClient(remoteClient);
@@ -150,14 +152,9 @@ namespace OpenSim.Region.CoreModules.World.Objects.BuySell
                 break;
 
             case 2: // Sell a copy
-                Vector3 inventoryStoredPosition = new Vector3
-                       (((group.AbsolutePosition.X > (int)Constants.RegionSize)
-                             ? 250
-                             : group.AbsolutePosition.X)
-                        ,
-                        (group.AbsolutePosition.X > (int)Constants.RegionSize)
-                            ? 250
-                            : group.AbsolutePosition.X,
+                Vector3 inventoryStoredPosition = new Vector3(
+                        Math.Min(group.AbsolutePosition.X, m_scene.RegionInfo.RegionSizeX - 6),
+                        Math.Min(group.AbsolutePosition.Y, m_scene.RegionInfo.RegionSizeY - 6),
                         group.AbsolutePosition.Z);
 
                 Vector3 originalPosition = group.AbsolutePosition;
@@ -197,13 +194,7 @@ namespace OpenSim.Region.CoreModules.World.Objects.BuySell
                 item.InvType = (int)InventoryType.Object;
                 item.Folder = categoryID;
 
-                uint nextPerms=(perms & 7) << 13;
-                if ((nextPerms & (uint)PermissionMask.Copy) == 0)
-                    perms &= ~(uint)PermissionMask.Copy;
-                if ((nextPerms & (uint)PermissionMask.Transfer) == 0)
-                    perms &= ~(uint)PermissionMask.Transfer;
-                if ((nextPerms & (uint)PermissionMask.Modify) == 0)
-                    perms &= ~(uint)PermissionMask.Modify;
+                PermissionsUtil.ApplyFoldedPermissions(perms, ref perms);
 
                 item.BasePermissions = perms & part.NextOwnerMask;
                 item.CurrentPermissions = perms & part.NextOwnerMask;

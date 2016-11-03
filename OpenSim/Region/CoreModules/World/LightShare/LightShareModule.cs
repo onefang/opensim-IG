@@ -195,19 +195,20 @@ namespace OpenSim.Region.CoreModules.World.LightShare
                 if (m_scene.RegionInfo.WindlightSettings.valid)
                 {
                     List<byte[]> param = compileWindlightSettings(wl);
-                    client.SendGenericMessage("Windlight", param);
+                    client.SendGenericMessage("Windlight", UUID.Random(), param);
                 }
                 else
                 {
                     List<byte[]> param = new List<byte[]>();
-                    client.SendGenericMessage("WindlightReset", param);
+                    client.SendGenericMessage("WindlightReset", UUID.Random(), param);
                 }
             }
         }
 
         private void EventManager_OnMakeRootAgent(ScenePresence presence)
         {
-            m_log.Debug("[WINDLIGHT]: Sending windlight scene to new client");
+//            m_log.Debug("[WINDLIGHT]: Sending windlight scene to new client {0}", presence.Name);
+
             SendProfileToClient(presence.ControllingClient);
         }
 

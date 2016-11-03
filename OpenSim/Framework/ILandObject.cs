@@ -38,6 +38,7 @@ namespace OpenSim.Framework
         int GetParcelMaxPrimCount();
         int GetSimulatorMaxPrimCount();
         int GetPrimsFree();
+        Dictionary<UUID, int> GetLandObjectOwners();
 
         LandData LandData { get; set; }
         bool[,] LandBitmap { get; set; }
@@ -70,6 +71,7 @@ namespace OpenSim.Framework
         void UpdateLandProperties(LandUpdateArgs args, IClientAPI remote_client);
         bool IsEitherBannedOrRestricted(UUID avatar);
         bool IsBannedFromLand(UUID avatar);
+        bool CanBeOnThisLand(UUID avatar, float posHeight);
         bool IsRestrictedFromLand(UUID avatar);
         bool IsInLandAccessList(UUID avatar);
         void SendLandUpdateToClient(IClientAPI remote_client);

@@ -45,14 +45,33 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Threading;
 using log4net;
+using log4net.Appender;
 using Nini.Config;
 using Nwc.XmlRpc;
 using OpenMetaverse;
 using OpenMetaverse.StructuredData;
 using Amib.Threading;
+using System.Collections.Concurrent;
+using System.Collections.Specialized;
+using System.Web;
 
 namespace OpenSim.Framework
 {
+    [Flags]
+    public enum PermissionMask : uint
+    { 
+        None = 0,
+        Transfer = 1 << 13,
+        Modify = 1 << 14,
+        Copy = 1 << 15,
+        Export = 1 << 16,
+        Move = 1 << 19,
+        Damage = 1 << 20,
+        // All does not contain Export, which is special and must be
+        // explicitly given
+        All = (1 << 13) | (1 << 14) | (1 << 15) | (1 << 19)
+    }
+
     /// <summary>
     /// The method used by Util.FireAndForget for asynchronously firing events
     /// </summary>
@@ -73,14 +92,53 @@ namespace OpenSim.Framework
     }
 
     /// <summary>
+    /// Class for delivering SmartThreadPool statistical information
+    /// </summary>
+    /// <remarks>
+    /// We do it this way so that we do not directly expose STP.
+    /// </remarks>
+    public class STPInfo
+    {
+        public string Name { get; set; }
+        public STPStartInfo STPStartInfo { get; set; }
+        public WIGStartInfo WIGStartInfo { get; set; }
+        public bool IsIdle { get; set; }
+        public bool IsShuttingDown { get; set; }       
+        public int MaxThreads { get; set; }
+        public int MinThreads { get; set; }
+        public int InUseThreads { get; set; }
+        public int ActiveThreads { get; set; }
+        public int WaitingCallbacks { get; set; }
+        public int MaxConcurrentWorkItems { get; set; }
+    }
+
+    /// <summary>
     /// Miscellaneous utility functions
     /// </summary>
-    public class Util
+    public static class Util
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+        /// <summary>
+        /// Log-level for the thread pool:
+        /// 0 = no logging
+        /// 1 = only first line of stack trace; don't log common threads
+        /// 2 = full stack trace; don't log common threads
+        /// 3 = full stack trace, including common threads
+        /// </summary>
+        public static int LogThreadPool { get; set; }
+        public static bool LogOverloads { get; set; }
+
+        public static readonly int MAX_THREADPOOL_LEVEL = 3;
+
+        static Util()
+        {
+            LogThreadPool = 0;
+            LogOverloads = true;
+        }
+
         private static uint nextXferID = 5000;
-        private static Random randomClass = new Random();
+        private static Random randomClass = new ThreadSafeRandom();
 
         // Get a list of invalid file characters (OS dependent)
         private static string regexInvalidFileChars = "[" + new String(Path.GetInvalidFileNameChars()) + "]";
@@ -92,8 +150,11 @@ namespace OpenSim.Framework
         /// </summary>
         private static SmartThreadPool m_ThreadPool;
 
+        // Watchdog timer that aborts threads that have timed-out
+        private static Timer m_threadPoolWatchdog;
+
         // Unix-epoch starts at January 1st 1970, 00:00:00 UTC. And all our times in the server are (or at least should be) in UTC.
-        private static readonly DateTime unixEpoch =
+        public static readonly DateTime UnixEpoch =
             DateTime.ParseExact("1970-01-01 00:00:00 +0", "yyyy-MM-dd hh:mm:ss z", DateTimeFormatInfo.InvariantInfo).ToUniversalTime();
 
         private static readonly string rawUUIDPattern
@@ -103,6 +164,11 @@ namespace OpenSim.Framework
 
         public static FireAndForgetMethod DefaultFireAndForgetMethod = FireAndForgetMethod.SmartThreadPool;
         public static FireAndForgetMethod FireAndForgetMethod = DefaultFireAndForgetMethod;
+
+        public static bool IsPlatformMono
+        {
+            get { return Type.GetType("Mono.Runtime") != null; }
+        }
 
         /// <summary>
         /// Gets the name of the directory where the current running executable
@@ -291,6 +357,49 @@ namespace OpenSim.Framework
             return Utils.UIntsToLong(X, Y);
         }
 
+        // Regions are identified with a 'handle' made up of its region coordinates packed into a ulong.
+        // Several places rely on the ability to extract a region's location from its handle.
+        // Note the location is in 'world coordinates' (see below).
+        // Region handles are based on the lowest coordinate of the region so trim the passed x,y to be the regions 0,0.
+        public static ulong RegionWorldLocToHandle(uint X, uint Y)
+        {
+            return Utils.UIntsToLong(X, Y);
+        }
+
+        public static ulong RegionLocToHandle(uint X, uint Y)
+        {
+            return Utils.UIntsToLong(Util.RegionToWorldLoc(X), Util.RegionToWorldLoc(Y));
+        }
+
+        public static void RegionHandleToWorldLoc(ulong handle, out uint X, out uint Y)
+        {
+            X = (uint)(handle >> 32);
+            Y = (uint)(handle & (ulong)uint.MaxValue);
+        }
+
+        public static void RegionHandleToRegionLoc(ulong handle, out uint X, out uint Y)
+        {
+            uint worldX, worldY;
+            RegionHandleToWorldLoc(handle, out worldX, out worldY);
+            X = WorldToRegionLoc(worldX);
+            Y = WorldToRegionLoc(worldY);
+        }
+
+        // A region location can be 'world coordinates' (meters from zero) or 'region coordinates'
+        //      (number of regions from zero). This measurement of regions relies on the legacy 256 region size.
+        // These routines exist to make what is being converted explicit so the next person knows what was meant.
+        // Convert a region's 'world coordinate' to its 'region coordinate'.
+        public static uint WorldToRegionLoc(uint worldCoord)
+        {
+            return worldCoord / Constants.RegionSize;
+        }
+
+        // Convert a region's 'region coordinate' to its 'world coordinate'.
+        public static uint RegionToWorldLoc(uint regionCoord)
+        {
+            return regionCoord * Constants.RegionSize;
+        }
+
         public static T Clamp<T>(T x, T min, T max)
             where T : IComparable<T>
         {
@@ -302,13 +411,29 @@ namespace OpenSim.Framework
         // Clamp the maximum magnitude of a vector
         public static Vector3 ClampV(Vector3 x, float max)
         {
-            Vector3 ret = x;
             float lenSq = x.LengthSquared();
             if (lenSq > (max * max))
             {
                 x = x / x.Length() * max;
             }
+
             return x;
+        }
+
+        /// <summary>
+        /// Check if any of the values in a Vector3 are NaN or Infinity
+        /// </summary>
+        /// <param name="v">Vector3 to check</param>
+        /// <returns></returns>
+        public static bool IsNanOrInfinity(Vector3 v)
+        {
+            if (float.IsNaN(v.X) || float.IsNaN(v.Y) || float.IsNaN(v.Z))
+                return true;
+
+            if (float.IsInfinity(v.X) || float.IsInfinity(v.Y) || float.IsNaN(v.Z))
+                return true;
+
+            return false;
         }
 
         // Inclusive, within range test (true if equal to the endpoints)
@@ -400,6 +525,19 @@ namespace OpenSim.Framework
             return sb.ToString();
         }
 
+        public static byte[] DocToBytes(XmlDocument doc)
+        {
+            using (MemoryStream ms = new MemoryStream())
+            using (XmlTextWriter xw = new XmlTextWriter(ms, null))
+            {
+                xw.Formatting = Formatting.Indented;
+                doc.WriteTo(xw);
+                xw.Flush();
+
+                return ms.ToArray();
+            }
+        }
+
         /// <summary>
         /// Is the platform Windows?
         /// </summary>
@@ -416,6 +554,11 @@ namespace OpenSim.Framework
 
         public static bool LoadArchSpecificWindowsDll(string libraryName)
         {
+            return LoadArchSpecificWindowsDll(libraryName, string.Empty);
+        }
+
+        public static bool LoadArchSpecificWindowsDll(string libraryName, string path)
+        {
             // We do this so that OpenSimulator on Windows loads the correct native library depending on whether
             // it's running as a 32-bit process or a 64-bit one.  By invoking LoadLibary here, later DLLImports
             // will find it already loaded later on.
@@ -425,9 +568,9 @@ namespace OpenSim.Framework
             string nativeLibraryPath;
 
             if (Util.Is64BitProcess())
-                nativeLibraryPath = "lib64/" + libraryName;
+                nativeLibraryPath = Path.Combine(Path.Combine(path, "lib64"), libraryName);
             else
-                nativeLibraryPath = "lib32/" + libraryName;
+                nativeLibraryPath = Path.Combine(Path.Combine(path, "lib32"), libraryName);
 
             m_log.DebugFormat("[UTIL]: Loading native Windows library at {0}", nativeLibraryPath);
 
@@ -479,20 +622,18 @@ namespace OpenSim.Framework
 
         public static int ToUnixTime(DateTime stamp)
         {
-            TimeSpan t = stamp.ToUniversalTime() - unixEpoch;
-            return (int) t.TotalSeconds;
+            TimeSpan t = stamp.ToUniversalTime() - UnixEpoch;
+            return (int)t.TotalSeconds;
         }
 
         public static DateTime ToDateTime(ulong seconds)
         {
-            DateTime epoch = unixEpoch;
-            return epoch.AddSeconds(seconds);
+            return UnixEpoch.AddSeconds(seconds);
         }
 
         public static DateTime ToDateTime(int seconds)
         {
-            DateTime epoch = unixEpoch;
-            return epoch.AddSeconds(seconds);
+            return UnixEpoch.AddSeconds(seconds);
         }
 
         /// <summary>
@@ -664,16 +805,6 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// Converts a URL to a IPAddress
-        /// </summary>
-        /// <param name="url">URL Standard Format</param>
-        /// <returns>A resolved IP Address</returns>
-        public static IPAddress GetHostFromURL(string url)
-        {
-            return GetHostFromDNS(url.Split(new char[] {'/', ':'})[3]);
-        }
-
-        /// <summary>
         /// Returns a IP address from a specified DNS, favouring IPv4 addresses.
         /// </summary>
         /// <param name="dnsAddress">DNS Hostname</param>
@@ -763,6 +894,54 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
+        /// Parses a foreign asset ID.
+        /// </summary>
+        /// <param name="id">A possibly-foreign asset ID: http://grid.example.com:8002/00000000-0000-0000-0000-000000000000 </param>
+        /// <param name="url">The URL: http://grid.example.com:8002</param>
+        /// <param name="assetID">The asset ID: 00000000-0000-0000-0000-000000000000. Returned even if 'id' isn't foreign.</param>
+        /// <returns>True: this is a foreign asset ID; False: it isn't</returns>
+        public static bool ParseForeignAssetID(string id, out string url, out string assetID)
+        {
+            url = String.Empty;
+            assetID = String.Empty;
+
+            UUID uuid;
+            if (UUID.TryParse(id, out uuid))
+            {
+                assetID = uuid.ToString();
+                return false;
+            }
+
+            if ((id.Length == 0) || (id[0] != 'h' && id[0] != 'H'))
+                return false;
+
+            Uri assetUri;
+            if (!Uri.TryCreate(id, UriKind.Absolute, out assetUri) || assetUri.Scheme != Uri.UriSchemeHttp)
+                return false;
+
+            // Simian
+            if (assetUri.Query != string.Empty)
+            {
+                NameValueCollection qscoll = HttpUtility.ParseQueryString(assetUri.Query);
+                assetID = qscoll["id"];
+                if (assetID != null)
+                    url = id.Replace(assetID, ""); // Malformed again, as simian expects
+                else
+                    url = id; // !!! best effort
+            }
+            else // robust
+            {
+                url = "http://" + assetUri.Authority;
+                assetID = assetUri.LocalPath.Trim(new char[] { '/' });
+            }
+
+            if (!UUID.TryParse(assetID, out uuid))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// Removes all invalid path chars (OS dependent)
         /// </summary>
         /// <param name="path">path</param>
@@ -816,9 +995,22 @@ namespace OpenSim.Framework
             return ".";
         }
 
+        public static string logFile()
+        {
+            foreach (IAppender appender in LogManager.GetRepository().GetAppenders())
+            {
+                if (appender is FileAppender)
+                {
+                    return ((FileAppender)appender).File;
+                }
+            }
+
+            return "./OpenSim.log";
+        }
+
         public static string logDir()
         {
-            return ".";
+            return Path.GetDirectoryName(logFile());
         }
 
         // From: http://coercedcode.blogspot.com/2008/03/c-generate-unique-filenames-within.html
@@ -849,12 +1041,13 @@ namespace OpenSim.Framework
             return FileName;
         }
 
-        // Nini (config) related Methods
+        #region Nini (config) related Methods
+
         public static IConfigSource ConvertDataRowToXMLConfig(DataRow row, string fileName)
         {
             if (!File.Exists(fileName))
             {
-                //create new file
+                // create new file
             }
             XmlConfigSource config = new XmlConfigSource(fileName);
             AddDataRowToConfig(config, row);
@@ -871,6 +1064,202 @@ namespace OpenSim.Framework
                 config.Configs[(string) row[0]].Set(row.Table.Columns[i].ColumnName, row[i]);
             }
         }
+
+        /// <summary>
+        /// Gets the value of a configuration variable by looking into
+        /// multiple sections in order. The latter sections overwrite 
+        /// any values previously found.
+        /// </summary>
+        /// <typeparam name="T">Type of the variable</typeparam>
+        /// <param name="config">The configuration object</param>
+        /// <param name="varname">The configuration variable</param>
+        /// <param name="sections">Ordered sequence of sections to look at</param>
+        /// <returns></returns>
+        public static T GetConfigVarFromSections<T>(IConfigSource config, string varname, string[] sections)
+        {
+            return GetConfigVarFromSections<T>(config, varname, sections, default(T));
+        }
+
+        /// <summary>
+        /// Gets the value of a configuration variable by looking into
+        /// multiple sections in order. The latter sections overwrite 
+        /// any values previously found.
+        /// </summary>
+        /// <remarks>
+        /// If no value is found then the given default value is returned
+        /// </remarks>
+        /// <typeparam name="T">Type of the variable</typeparam>
+        /// <param name="config">The configuration object</param>
+        /// <param name="varname">The configuration variable</param>
+        /// <param name="sections">Ordered sequence of sections to look at</param>
+        /// <param name="val">Default value</param>
+        /// <returns></returns>
+        public static T GetConfigVarFromSections<T>(IConfigSource config, string varname, string[] sections, object val)
+        {
+            foreach (string section in sections)
+            {
+                IConfig cnf = config.Configs[section];
+                if (cnf == null)
+                    continue;
+
+                if (typeof(T) == typeof(String))
+                    val = cnf.GetString(varname, (string)val);
+                else if (typeof(T) == typeof(Boolean))
+                    val = cnf.GetBoolean(varname, (bool)val);
+                else if (typeof(T) == typeof(Int32))
+                    val = cnf.GetInt(varname, (int)val);
+                else if (typeof(T) == typeof(float))
+                    val = cnf.GetFloat(varname, (float)val);
+                else
+                    m_log.ErrorFormat("[UTIL]: Unhandled type {0}", typeof(T));
+            }
+
+            return (T)val;
+        }
+
+        public static void MergeEnvironmentToConfig(IConfigSource ConfigSource)
+        {
+            IConfig enVars = ConfigSource.Configs["Environment"];
+            // if section does not exist then user isn't expecting them, so don't bother.
+            if( enVars != null )
+            {
+                // load the values from the environment
+                EnvConfigSource envConfigSource = new EnvConfigSource();
+                // add the requested keys
+                string[] env_keys = enVars.GetKeys();
+                foreach ( string key in env_keys )
+                {
+                    envConfigSource.AddEnv(key, string.Empty);
+                }
+                // load the values from environment
+                envConfigSource.LoadEnv();
+                // add them in to the master
+                ConfigSource.Merge(envConfigSource);
+                ConfigSource.ExpandKeyValues();
+            }
+        }
+        
+        public static T ReadSettingsFromIniFile<T>(IConfig config, T settingsClass)
+        {
+            Type settingsType = settingsClass.GetType();
+
+            FieldInfo[] fieldInfos = settingsType.GetFields();
+            foreach (FieldInfo fieldInfo in fieldInfos)
+            {
+                if (!fieldInfo.IsStatic)
+                {
+                    if (fieldInfo.FieldType == typeof(System.String))
+                    {
+                        fieldInfo.SetValue(settingsClass, config.Get(fieldInfo.Name, (string)fieldInfo.GetValue(settingsClass)));
+                    }
+                    else if (fieldInfo.FieldType == typeof(System.Boolean))
+                    {
+                        fieldInfo.SetValue(settingsClass, config.GetBoolean(fieldInfo.Name, (bool)fieldInfo.GetValue(settingsClass)));
+                    }
+                    else if (fieldInfo.FieldType == typeof(System.Int32))
+                    {
+                        fieldInfo.SetValue(settingsClass, config.GetInt(fieldInfo.Name, (int)fieldInfo.GetValue(settingsClass)));
+                    }
+                    else if (fieldInfo.FieldType == typeof(System.Single))
+                    {
+                        fieldInfo.SetValue(settingsClass, config.GetFloat(fieldInfo.Name, (float)fieldInfo.GetValue(settingsClass)));
+                    }
+                    else if (fieldInfo.FieldType == typeof(System.UInt32))
+                    {
+                        fieldInfo.SetValue(settingsClass, Convert.ToUInt32(config.Get(fieldInfo.Name, ((uint)fieldInfo.GetValue(settingsClass)).ToString())));
+                    }
+                }
+            }
+
+            PropertyInfo[] propertyInfos = settingsType.GetProperties();
+            foreach (PropertyInfo propInfo in propertyInfos)
+            {
+                if ((propInfo.CanRead) && (propInfo.CanWrite))
+                {
+                    if (propInfo.PropertyType == typeof(System.String))
+                    {
+                        propInfo.SetValue(settingsClass, config.Get(propInfo.Name, (string)propInfo.GetValue(settingsClass, null)), null);
+                    }
+                    else if (propInfo.PropertyType == typeof(System.Boolean))
+                    {
+                        propInfo.SetValue(settingsClass, config.GetBoolean(propInfo.Name, (bool)propInfo.GetValue(settingsClass, null)), null);
+                    }
+                    else if (propInfo.PropertyType == typeof(System.Int32))
+                    {
+                        propInfo.SetValue(settingsClass, config.GetInt(propInfo.Name, (int)propInfo.GetValue(settingsClass, null)), null);
+                    }
+                    else if (propInfo.PropertyType == typeof(System.Single))
+                    {
+                        propInfo.SetValue(settingsClass, config.GetFloat(propInfo.Name, (float)propInfo.GetValue(settingsClass, null)), null);
+                    }
+                    if (propInfo.PropertyType == typeof(System.UInt32))
+                    {
+                        propInfo.SetValue(settingsClass, Convert.ToUInt32(config.Get(propInfo.Name, ((uint)propInfo.GetValue(settingsClass, null)).ToString())), null);
+                    }
+                }
+            }
+
+            return settingsClass;
+        }
+
+        /// <summary>
+        /// Reads a configuration file, configFile, merging it with the main configuration, config.
+        /// If the file doesn't exist, it copies a given exampleConfigFile onto configFile, and then
+        /// merges it.
+        /// </summary>
+        /// <param name="config">The main configuration data</param>
+        /// <param name="configFileName">The name of a configuration file in ConfigDirectory variable, no path</param>
+        /// <param name="exampleConfigFile">Full path to an example configuration file</param>
+        /// <param name="configFilePath">Full path ConfigDirectory/configFileName</param>
+        /// <param name="created">True if the file was created in ConfigDirectory, false if it existed</param>
+        /// <returns>True if success</returns>
+        public static bool MergeConfigurationFile(IConfigSource config, string configFileName, string exampleConfigFile, out string configFilePath, out bool created)
+        {
+            created = false;
+            configFilePath = string.Empty;
+
+            IConfig cnf = config.Configs["Startup"];
+            if (cnf == null)
+            {
+                m_log.WarnFormat("[UTILS]: Startup section doesn't exist");
+                return false;
+            }
+
+            string configDirectory = cnf.GetString("ConfigDirectory", ".");
+            string configFile = Path.Combine(configDirectory, configFileName);
+
+            if (!File.Exists(configFile) && !string.IsNullOrEmpty(exampleConfigFile))
+            {
+                // We need to copy the example onto it
+
+                if (!Directory.Exists(configDirectory))
+                    Directory.CreateDirectory(configDirectory);
+
+                try
+                {
+                    File.Copy(exampleConfigFile, configFile);
+                    created = true;
+                }
+                catch (Exception e)
+                {
+                    m_log.WarnFormat("[UTILS]: Exception copying configuration file {0} to {1}: {2}", configFile, exampleConfigFile, e.Message);
+                    return false;
+                }
+            }
+
+            if (File.Exists(configFile))
+            {
+                // Merge 
+                config.Merge(new IniConfigSource(configFile));
+                config.ExpandKeyValues();
+                configFilePath = configFile;
+                return true;
+            }
+            else
+                return false;
+        }
+
+        #endregion
 
         public static float Clip(float x, float min, float max)
         {
@@ -999,46 +1388,6 @@ namespace OpenSim.Framework
             return ret;
         }
 
-        public static string Compress(string text)
-        {
-            byte[] buffer = Util.UTF8.GetBytes(text);
-            MemoryStream memory = new MemoryStream();
-            using (GZipStream compressor = new GZipStream(memory, CompressionMode.Compress, true))
-            {
-                compressor.Write(buffer, 0, buffer.Length);
-            }
-
-            memory.Position = 0;
-           
-            byte[] compressed = new byte[memory.Length];
-            memory.Read(compressed, 0, compressed.Length);
-
-            byte[] compressedBuffer = new byte[compressed.Length + 4];
-            Buffer.BlockCopy(compressed, 0, compressedBuffer, 4, compressed.Length);
-            Buffer.BlockCopy(BitConverter.GetBytes(buffer.Length), 0, compressedBuffer, 0, 4);
-            return Convert.ToBase64String(compressedBuffer);
-        }
-
-        public static string Decompress(string compressedText)
-        {
-            byte[] compressedBuffer = Convert.FromBase64String(compressedText);
-            using (MemoryStream memory = new MemoryStream())
-            {
-                int msgLength = BitConverter.ToInt32(compressedBuffer, 0);
-                memory.Write(compressedBuffer, 4, compressedBuffer.Length - 4);
-
-                byte[] buffer = new byte[msgLength];
-
-                memory.Position = 0;
-                using (GZipStream decompressor = new GZipStream(memory, CompressionMode.Decompress))
-                {
-                    decompressor.Read(buffer, 0, buffer.Length);
-                }
-
-                return Util.UTF8.GetString(buffer);
-            }
-        }
-
         /// <summary>
         /// Copy data from one stream to another, leaving the read position of both streams at the beginning.
         /// </summary>
@@ -1119,7 +1468,7 @@ namespace OpenSim.Framework
             byte[] bytes =
             {
                 (byte)regionHandle, (byte)(regionHandle >> 8), (byte)(regionHandle >> 16), (byte)(regionHandle >> 24),
-                (byte)(regionHandle >> 32), (byte)(regionHandle >> 40), (byte)(regionHandle >> 48), (byte)(regionHandle << 56),
+                (byte)(regionHandle >> 32), (byte)(regionHandle >> 40), (byte)(regionHandle >> 48), (byte)(regionHandle >> 56),
                 (byte)x, (byte)(x >> 8), 0, 0,
                 (byte)y, (byte)(y >> 8), 0, 0 };
             return new UUID(bytes, 0);
@@ -1130,7 +1479,7 @@ namespace OpenSim.Framework
             byte[] bytes =
             {
                 (byte)regionHandle, (byte)(regionHandle >> 8), (byte)(regionHandle >> 16), (byte)(regionHandle >> 24),
-                (byte)(regionHandle >> 32), (byte)(regionHandle >> 40), (byte)(regionHandle >> 48), (byte)(regionHandle << 56),
+                (byte)(regionHandle >> 32), (byte)(regionHandle >> 40), (byte)(regionHandle >> 48), (byte)(regionHandle >> 56),
                 (byte)x, (byte)(x >> 8), (byte)z, (byte)(z >> 8),
                 (byte)y, (byte)(y >> 8), 0, 0 };
             return new UUID(bytes, 0);
@@ -1203,7 +1552,7 @@ namespace OpenSim.Framework
                     ru = "OSX/Mono";
                 else
                 {
-                    if (Type.GetType("Mono.Runtime") != null)
+                    if (IsPlatformMono)
                         ru = "Win/Mono";
                     else
                         ru = "Win/.NET";
@@ -1242,69 +1591,6 @@ namespace OpenSim.Framework
             return displayConnectionString;
         }
 
-        public static T ReadSettingsFromIniFile<T>(IConfig config, T settingsClass)
-        {
-            Type settingsType = settingsClass.GetType();
-
-            FieldInfo[] fieldInfos = settingsType.GetFields();
-            foreach (FieldInfo fieldInfo in fieldInfos)
-            {
-                if (!fieldInfo.IsStatic)
-                {
-                    if (fieldInfo.FieldType == typeof(System.String))
-                    {
-                        fieldInfo.SetValue(settingsClass, config.Get(fieldInfo.Name, (string)fieldInfo.GetValue(settingsClass)));
-                    }
-                    else if (fieldInfo.FieldType == typeof(System.Boolean))
-                    {
-                        fieldInfo.SetValue(settingsClass, config.GetBoolean(fieldInfo.Name, (bool)fieldInfo.GetValue(settingsClass)));
-                    }
-                    else if (fieldInfo.FieldType == typeof(System.Int32))
-                    {
-                        fieldInfo.SetValue(settingsClass, config.GetInt(fieldInfo.Name, (int)fieldInfo.GetValue(settingsClass)));
-                    }
-                    else if (fieldInfo.FieldType == typeof(System.Single))
-                    {
-                        fieldInfo.SetValue(settingsClass, config.GetFloat(fieldInfo.Name, (float)fieldInfo.GetValue(settingsClass)));
-                    }
-                    else if (fieldInfo.FieldType == typeof(System.UInt32))
-                    {
-                        fieldInfo.SetValue(settingsClass, Convert.ToUInt32(config.Get(fieldInfo.Name, ((uint)fieldInfo.GetValue(settingsClass)).ToString())));
-                    }
-                }
-            }
-
-            PropertyInfo[] propertyInfos = settingsType.GetProperties();
-            foreach (PropertyInfo propInfo in propertyInfos)
-            {
-                if ((propInfo.CanRead) && (propInfo.CanWrite))
-                {
-                    if (propInfo.PropertyType == typeof(System.String))
-                    {
-                        propInfo.SetValue(settingsClass, config.Get(propInfo.Name, (string)propInfo.GetValue(settingsClass, null)), null);
-                    }
-                    else if (propInfo.PropertyType == typeof(System.Boolean))
-                    {
-                        propInfo.SetValue(settingsClass, config.GetBoolean(propInfo.Name, (bool)propInfo.GetValue(settingsClass, null)), null);
-                    }
-                    else if (propInfo.PropertyType == typeof(System.Int32))
-                    {
-                        propInfo.SetValue(settingsClass, config.GetInt(propInfo.Name, (int)propInfo.GetValue(settingsClass, null)), null);
-                    }
-                    else if (propInfo.PropertyType == typeof(System.Single))
-                    {
-                        propInfo.SetValue(settingsClass, config.GetFloat(propInfo.Name, (float)propInfo.GetValue(settingsClass, null)), null);
-                    }
-                    if (propInfo.PropertyType == typeof(System.UInt32))
-                    {
-                        propInfo.SetValue(settingsClass, Convert.ToUInt32(config.Get(propInfo.Name, ((uint)propInfo.GetValue(settingsClass, null)).ToString())), null);
-                    }
-                }
-            }
-
-            return settingsClass;
-        }
-
         public static string Base64ToString(string str)
         {
             Decoder utf8Decode = Encoding.UTF8.GetDecoder();
@@ -1315,6 +1601,46 @@ namespace OpenSim.Framework
             utf8Decode.GetChars(todecode_byte, 0, todecode_byte.Length, decoded_char, 0);
             string result = new String(decoded_char);
             return result;
+        }
+
+        public static void BinaryToASCII(char[] chars)
+        {
+            for (int i = 0; i < chars.Length; i++)
+            {
+                char ch = chars[i];
+                if (ch < 32 || ch > 127)
+                    chars[i] = '.';
+            }
+        }
+
+        public static string BinaryToASCII(string src)
+        {
+            char[] chars = src.ToCharArray();
+            BinaryToASCII(chars);
+            return new String(chars);
+        }
+
+        /// <summary>
+        /// Reads a known number of bytes from a stream.
+        /// Throws EndOfStreamException if the stream doesn't contain enough data.
+        /// </summary>
+        /// <param name="stream">The stream to read data from</param>
+        /// <param name="data">The array to write bytes into. The array
+        /// will be completely filled from the stream, so an appropriate
+        /// size must be given.</param>
+        public static void ReadStream(Stream stream, byte[] data)
+        {
+            int offset = 0;
+            int remaining = data.Length;
+
+            while (remaining > 0)
+            {
+                int read = stream.Read(data, offset, remaining);
+                if (read <= 0)
+                    throw new EndOfStreamException(String.Format("End of stream reached with {0} bytes left to read", remaining));
+                remaining -= read;
+                offset += read;
+            }
         }
 
         public static Guid GetHashGuid(string data, string salt)
@@ -1466,32 +1792,6 @@ namespace OpenSim.Framework
             return found.ToArray();
         }
 
-        public static string ServerURI(string uri)
-        {
-            if (uri == string.Empty)
-                return string.Empty;
-
-            // Get rid of eventual slashes at the end
-            uri = uri.TrimEnd('/');
-
-            IPAddress ipaddr1 = null;
-            string port1 = "";
-            try
-            {
-                ipaddr1 = Util.GetHostFromURL(uri);
-            }
-            catch { }
-
-            try
-            {
-                port1 = uri.Split(new char[] { ':' })[2];
-            }
-            catch { }
-
-            // We tried our best to convert the domain names to IP addresses
-            return (ipaddr1 != null) ? "http://" + ipaddr1.ToString() + ":" + port1 : uri;
-        }
-
         /// <summary>
         /// Convert a string to a byte format suitable for transport in an LLUDP packet.  The output is truncated to 256 bytes if necessary.
         /// </summary>
@@ -1518,17 +1818,26 @@ namespace OpenSim.Framework
         /// <returns></returns>
         public static byte[] StringToBytes256(string str)
         {
-            if (String.IsNullOrEmpty(str)) { return Utils.EmptyBytes; }
-            if (str.Length > 254) str = str.Remove(254);
-            if (!str.EndsWith("\0")) { str += "\0"; }
+            if (String.IsNullOrEmpty(str))
+                return Utils.EmptyBytes;
+
+            if (!str.EndsWith("\0"))
+                str += "\0";
             
             // Because this is UTF-8 encoding and not ASCII, it's possible we
             // might have gotten an oversized array even after the string trim
             byte[] data = UTF8.GetBytes(str);
+
             if (data.Length > 256)
             {
-                Array.Resize<byte>(ref data, 256);
-                data[255] = 0;
+                int cut = 255;
+                if((data[cut] & 0x80 ) != 0 )
+                    {
+                    while(cut > 0 && (data[cut] & 0xc0) != 0xc0)
+                        cut--;
+                    }
+                Array.Resize<byte>(ref data, cut + 1);
+                data[cut] = 0;
             }
 
             return data;
@@ -1560,20 +1869,53 @@ namespace OpenSim.Framework
         /// <returns></returns>
         public static byte[] StringToBytes1024(string str)
         {
-            if (String.IsNullOrEmpty(str)) { return Utils.EmptyBytes; }
-            if (str.Length > 1023) str = str.Remove(1023);
-            if (!str.EndsWith("\0")) { str += "\0"; }
+            if (String.IsNullOrEmpty(str))
+                return Utils.EmptyBytes;
+
+            if (!str.EndsWith("\0"))
+                 str += "\0";
 
             // Because this is UTF-8 encoding and not ASCII, it's possible we
             // might have gotten an oversized array even after the string trim
             byte[] data = UTF8.GetBytes(str);
+
             if (data.Length > 1024)
             {
-                Array.Resize<byte>(ref data, 1024);
-                data[1023] = 0;
+                int cut = 1023;
+                if((data[cut] & 0x80 ) != 0 )
+                    {
+                    while(cut > 0 && (data[cut] & 0xc0) != 0xc0)
+                        cut--;
+                    }
+                Array.Resize<byte>(ref data, cut + 1);
+                data[cut] = 0;
             }
 
             return data;
+        }
+
+        /// <summary>
+        /// Pretty format the hashtable contents to a single line.
+        /// </summary>
+        /// <remarks>
+        /// Used for debugging output.
+        /// </remarks>
+        /// <param name='ht'></param>
+        public static string PrettyFormatToSingleLine(Hashtable ht)
+        {
+            StringBuilder sb = new StringBuilder();
+
+            int i = 0;
+
+            foreach (string key in ht.Keys)
+            {
+                sb.AppendFormat("{0}:{1}", key, ht[key]);
+
+                if (++i < ht.Count)
+                    sb.AppendFormat(", ");
+            }
+
+            return sb.ToString();
         }
 
         /// <summary>
@@ -1646,25 +1988,28 @@ namespace OpenSim.Framework
             }
         }
 
-        public static void FireAndForget(System.Threading.WaitCallback callback)
-        {
-            FireAndForget(callback, null);
-        }
-
-        public static void InitThreadPool(int maxThreads)
+        public static void InitThreadPool(int minThreads, int maxThreads)
         {
             if (maxThreads < 2)
                 throw new ArgumentOutOfRangeException("maxThreads", "maxThreads must be greater than 2");
+
+            if (minThreads > maxThreads || minThreads < 2)
+                throw new ArgumentOutOfRangeException("minThreads", "minThreads must be greater than 2 and less than or equal to maxThreads");
+
             if (m_ThreadPool != null)
-                throw new InvalidOperationException("SmartThreadPool is already initialized");
+            {
+                m_log.Warn("SmartThreadPool is already initialized.  Ignoring request.");
+                return;
+            }
 
             STPStartInfo startInfo = new STPStartInfo();
             startInfo.ThreadPoolName = "Util";
             startInfo.IdleTimeout = 2000;
             startInfo.MaxWorkerThreads = maxThreads;
-            startInfo.MinWorkerThreads = 2;
+            startInfo.MinWorkerThreads = minThreads;
 
             m_ThreadPool = new SmartThreadPool(startInfo);
+            m_threadPoolWatchdog = new Timer(ThreadPoolWatchdog, null, 0, 1000);
         }
 
         public static int FireAndForgetCount()
@@ -1687,15 +2032,179 @@ namespace OpenSim.Framework
                     throw new NotImplementedException();
             }
         }
+                
+        /// <summary>
+        /// Additional information about threads in the main thread pool. Used to time how long the
+        /// thread has been running, and abort it if it has timed-out.
+        /// </summary>
+        private class ThreadInfo
+        {
+            public long ThreadFuncNum { get; set; }
+            public string StackTrace { get; set; }
+            private string context;
+            public bool LogThread { get; set; }
+            
+            public IWorkItemResult WorkItem { get; set; }
+            public Thread Thread { get; set; }
+            public bool Running { get; set; }
+            public bool Aborted { get; set; }
+            private int started;
+
+            public ThreadInfo(long threadFuncNum, string context)
+            {
+                ThreadFuncNum = threadFuncNum;
+                this.context = context;
+                LogThread = false;
+                Thread = null;
+                Running = false;
+                Aborted = false;
+            }
+
+            public void Started()
+            {
+                Thread = Thread.CurrentThread;
+                started = EnvironmentTickCount();
+                Running = true;
+            }
+
+            public void Ended()
+            {
+                Running = false;
+            }
+
+            public int Elapsed()
+            {
+                return EnvironmentTickCountSubtract(started);
+            }
+
+            public void Abort()
+            {
+                Aborted = true;
+                WorkItem.Cancel(true);
+            }
+
+            /// <summary>
+            /// Returns the thread's stack trace.
+            /// </summary>
+            /// <remarks>
+            /// May return one of two stack traces. First, tries to get the thread's active stack
+            /// trace. But this can fail, so as a fallback this method will return the stack
+            /// trace that was active when the task was queued.
+            /// </remarks>
+            public string GetStackTrace()
+            {
+                string ret = (context == null) ? "" : ("(" + context + ") ");
+
+                StackTrace activeStackTrace = Util.GetStackTrace(Thread);
+                if (activeStackTrace != null)
+                    ret += activeStackTrace.ToString();
+                else if (StackTrace != null)
+                    ret += "(Stack trace when queued) " + StackTrace;
+                // else, no stack trace available
+
+                return ret;
+            }
+        }
+
+        private static long nextThreadFuncNum = 0;
+        private static long numQueuedThreadFuncs = 0;
+        private static long numRunningThreadFuncs = 0;
+        private static long numTotalThreadFuncsCalled = 0;
+        private static Int32 threadFuncOverloadMode = 0;
+
+        public static long TotalQueuedFireAndForgetCalls { get { return numQueuedThreadFuncs; } }
+        public static long TotalRunningFireAndForgetCalls { get { return numRunningThreadFuncs; } }
+
+        // Maps (ThreadFunc number -> Thread)
+        private static ConcurrentDictionary<long, ThreadInfo> activeThreads = new ConcurrentDictionary<long, ThreadInfo>();
+
+        private static readonly int THREAD_TIMEOUT = 10 * 60 * 1000;    // 10 minutes
+
+        /// <summary>
+        /// Finds threads in the main thread pool that have timed-out, and aborts them.
+        /// </summary>
+        private static void ThreadPoolWatchdog(object state)
+        {
+            foreach (KeyValuePair<long, ThreadInfo> entry in activeThreads)
+            {
+                ThreadInfo t = entry.Value;
+                if (t.Running && !t.Aborted && (t.Elapsed() >= THREAD_TIMEOUT))
+                {
+                    m_log.WarnFormat("Timeout in threadfunc {0} ({1}) {2}", t.ThreadFuncNum, t.Thread.Name, t.GetStackTrace());
+                    t.Abort();
+
+                    ThreadInfo dummy;
+                    activeThreads.TryRemove(entry.Key, out dummy);
+
+                    // It's possible that the thread won't abort. To make sure the thread pool isn't
+                    // depleted, increase the pool size.
+                    m_ThreadPool.MaxThreads++;
+                }
+            }
+        }
+
+        public static long TotalFireAndForgetCallsMade { get { return numTotalThreadFuncsCalled; } }
+
+        public static Dictionary<string, int> GetFireAndForgetCallsMade()
+        {
+            return new Dictionary<string, int>(m_fireAndForgetCallsMade);
+        }       
+
+        private static Dictionary<string, int> m_fireAndForgetCallsMade = new Dictionary<string, int>();
+
+        public static Dictionary<string, int> GetFireAndForgetCallsInProgress()
+        {
+            return new Dictionary<string, int>(m_fireAndForgetCallsInProgress);
+        }
+
+        private static Dictionary<string, int> m_fireAndForgetCallsInProgress = new Dictionary<string, int>();
+
+        public static void FireAndForget(System.Threading.WaitCallback callback)
+        {
+            FireAndForget(callback, null, null);
+        }
 
         public static void FireAndForget(System.Threading.WaitCallback callback, object obj)
         {
+            FireAndForget(callback, obj, null);
+        }
+     
+        public static void FireAndForget(System.Threading.WaitCallback callback, object obj, string context)
+        {
+            Interlocked.Increment(ref numTotalThreadFuncsCalled);
+
+            if (context != null)
+            {
+                if (!m_fireAndForgetCallsMade.ContainsKey(context))
+                    m_fireAndForgetCallsMade[context] = 1;
+                else
+                    m_fireAndForgetCallsMade[context]++;
+
+                if (!m_fireAndForgetCallsInProgress.ContainsKey(context))
+                    m_fireAndForgetCallsInProgress[context] = 1;
+                else
+                    m_fireAndForgetCallsInProgress[context]++;
+            }
+
             WaitCallback realCallback;
+
+            bool loggingEnabled = LogThreadPool > 0;
+            
+            long threadFuncNum = Interlocked.Increment(ref nextThreadFuncNum);
+            ThreadInfo threadInfo = new ThreadInfo(threadFuncNum, context);
 
             if (FireAndForgetMethod == FireAndForgetMethod.RegressionTest)
             {
                 // If we're running regression tests, then we want any exceptions to rise up to the test code.
-                realCallback = o => { Culture.SetCurrentCulture(); callback(o); };
+                realCallback = 
+                    o => 
+                    { 
+                        Culture.SetCurrentCulture(); 
+                        callback(o); 
+                        
+                        if (context != null)
+                            m_fireAndForgetCallsInProgress[context]--;
+                    };
             }
             else
             {
@@ -1704,118 +2213,291 @@ namespace OpenSim.Framework
                 // for decimals places but is read by a culture that treats commas as number seperators.
                 realCallback = o =>
                 {
-                    Culture.SetCurrentCulture();
+                    long numQueued1 = Interlocked.Decrement(ref numQueuedThreadFuncs);
+                    long numRunning1 = Interlocked.Increment(ref numRunningThreadFuncs);
+                    threadInfo.Started();
+                    activeThreads[threadFuncNum] = threadInfo;
 
                     try
                     {
+                        if ((loggingEnabled || (threadFuncOverloadMode == 1)) && threadInfo.LogThread)
+                            m_log.DebugFormat("Run threadfunc {0} (Queued {1}, Running {2})", threadFuncNum, numQueued1, numRunning1);
+
+                        Culture.SetCurrentCulture();
+
                         callback(o);
+                    }
+                    catch (ThreadAbortException e)
+                    {
+                        m_log.Error(string.Format("Aborted threadfunc {0} ", threadFuncNum), e);
                     }
                     catch (Exception e)
                     {
-                        m_log.ErrorFormat(
-                            "[UTIL]: Continuing after async_call_method thread terminated with exception {0}{1}",
-                            e.Message, e.StackTrace);
+                        m_log.Error(string.Format("[UTIL]: Util STP threadfunc {0} terminated with error ", threadFuncNum), e);
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref numRunningThreadFuncs);
+                        threadInfo.Ended();
+                        ThreadInfo dummy;
+                        activeThreads.TryRemove(threadFuncNum, out dummy);
+                        if ((loggingEnabled || (threadFuncOverloadMode == 1)) && threadInfo.LogThread)
+                            m_log.DebugFormat("Exit threadfunc {0} ({1})", threadFuncNum, FormatDuration(threadInfo.Elapsed()));
+
+                        if (context != null)
+                            m_fireAndForgetCallsInProgress[context]--;
                     }
                 };
             }
 
-            switch (FireAndForgetMethod)
+            long numQueued = Interlocked.Increment(ref numQueuedThreadFuncs);
+            try
             {
-                case FireAndForgetMethod.RegressionTest:
-                case FireAndForgetMethod.None:
-                    realCallback.Invoke(obj);
-                    break;
-                case FireAndForgetMethod.UnsafeQueueUserWorkItem:
-                    ThreadPool.UnsafeQueueUserWorkItem(realCallback, obj);
-                    break;
-                case FireAndForgetMethod.QueueUserWorkItem:
-                    ThreadPool.QueueUserWorkItem(realCallback, obj);
-                    break;
-                case FireAndForgetMethod.BeginInvoke:
-                    FireAndForgetWrapper wrapper = FireAndForgetWrapper.Instance;
-                    wrapper.FireAndForget(realCallback, obj);
-                    break;
-                case FireAndForgetMethod.SmartThreadPool:
-                    if (m_ThreadPool == null)
-                        InitThreadPool(15); 
-                    m_ThreadPool.QueueWorkItem(SmartThreadPoolCallback, new object[] { realCallback, obj });
-                    break;
-                case FireAndForgetMethod.Thread:
-                    Thread thread = new Thread(delegate(object o) { realCallback(o); });
-                    thread.Start(obj);
-                    break;
-                default:
-                    throw new NotImplementedException();
+                long numRunning = numRunningThreadFuncs;
+
+                if (m_ThreadPool != null && LogOverloads)
+                {
+                    if ((threadFuncOverloadMode == 0) && (numRunning >= m_ThreadPool.MaxThreads))
+                    {
+                        if (Interlocked.CompareExchange(ref threadFuncOverloadMode, 1, 0) == 0)
+                            m_log.DebugFormat("Threadfunc: enable overload mode (Queued {0}, Running {1})", numQueued, numRunning);
+                    }
+                    else if ((threadFuncOverloadMode == 1) && (numRunning <= (m_ThreadPool.MaxThreads * 2) / 3))
+                    {
+                        if (Interlocked.CompareExchange(ref threadFuncOverloadMode, 0, 1) == 1)
+                            m_log.DebugFormat("Threadfunc: disable overload mode (Queued {0}, Running {1})", numQueued, numRunning);
+                    }
+                }
+
+                if (loggingEnabled || (threadFuncOverloadMode == 1))
+                {
+                    string full, partial;
+                    GetFireAndForgetStackTrace(out full, out partial);
+                    threadInfo.StackTrace = full;
+                    threadInfo.LogThread = ShouldLogThread(partial);
+
+                    if (threadInfo.LogThread)
+                    {
+                        m_log.DebugFormat("Queue threadfunc {0} (Queued {1}, Running {2}) {3}{4}",
+                            threadFuncNum, numQueued, numRunningThreadFuncs,
+                            (context == null) ? "" : ("(" + context + ") "),
+                            (LogThreadPool >= 2) ? full : partial);
+                    }
+                }
+                else
+                {
+                    // Since we didn't log "Queue threadfunc", don't log "Run threadfunc" or "End threadfunc" either.
+                    // Those log lines aren't useful when we don't know which function is running in the thread.
+                    threadInfo.LogThread = false;
+                }
+
+                switch (FireAndForgetMethod)
+                {
+                    case FireAndForgetMethod.RegressionTest:
+                    case FireAndForgetMethod.None:
+                        realCallback.Invoke(obj);
+                        break;
+                    case FireAndForgetMethod.UnsafeQueueUserWorkItem:
+                        ThreadPool.UnsafeQueueUserWorkItem(realCallback, obj);
+                        break;
+                    case FireAndForgetMethod.QueueUserWorkItem:
+                        ThreadPool.QueueUserWorkItem(realCallback, obj);
+                        break;
+                    case FireAndForgetMethod.BeginInvoke:
+                        FireAndForgetWrapper wrapper = FireAndForgetWrapper.Instance;
+                        wrapper.FireAndForget(realCallback, obj);
+                        break;
+                    case FireAndForgetMethod.SmartThreadPool:
+                        if (m_ThreadPool == null)
+                            InitThreadPool(2, 15);
+                        threadInfo.WorkItem = m_ThreadPool.QueueWorkItem((cb, o) => cb(o), realCallback, obj);
+                        break;
+                    case FireAndForgetMethod.Thread:
+                        Thread thread = new Thread(delegate(object o) { realCallback(o); });
+                        thread.Start(obj);
+                        break;
+                    default:
+                        throw new NotImplementedException();
+                }
+            }
+            catch (Exception)
+            {
+                Interlocked.Decrement(ref numQueuedThreadFuncs);
+                ThreadInfo dummy;
+                activeThreads.TryRemove(threadFuncNum, out dummy);
+                throw;
             }
         }
 
         /// <summary>
-        /// Get a thread pool report.
+        /// Returns whether the thread should be logged. Some very common threads aren't logged,
+        /// to avoid filling up the log.
         /// </summary>
-        /// <returns></returns>
-        public static string GetThreadPoolReport()
+        /// <param name="stackTrace">A partial stack trace of where the thread was queued</param>
+        /// <returns>Whether to log this thread</returns>
+        private static bool ShouldLogThread(string stackTrace)
         {
-            string threadPoolUsed = null;
-            int maxThreads = 0;
-            int minThreads = 0;
-            int allocatedThreads = 0;
-            int inUseThreads = 0;
-            int waitingCallbacks = 0;
-            int completionPortThreads = 0;
-
-            StringBuilder sb = new StringBuilder();
-            if (FireAndForgetMethod == FireAndForgetMethod.SmartThreadPool)
+            if (LogThreadPool < 3)
             {
-                // ROBUST currently leaves this the FireAndForgetMethod but never actually initializes the threadpool.
-                if (m_ThreadPool != null)
-                {
-                    threadPoolUsed = "SmartThreadPool";
-                    maxThreads = m_ThreadPool.MaxThreads;
-                    minThreads = m_ThreadPool.MinThreads;
-                    inUseThreads = m_ThreadPool.InUseThreads;
-                    allocatedThreads = m_ThreadPool.ActiveThreads;
-                    waitingCallbacks = m_ThreadPool.WaitingCallbacks;
-                }
+                if (stackTrace.Contains("BeginFireQueueEmpty"))
+                    return false;
             }
-            else if (
-                FireAndForgetMethod == FireAndForgetMethod.UnsafeQueueUserWorkItem
-                    || FireAndForgetMethod == FireAndForgetMethod.UnsafeQueueUserWorkItem)
-            {
-                threadPoolUsed = "BuiltInThreadPool";
-                ThreadPool.GetMaxThreads(out maxThreads, out completionPortThreads);
-                ThreadPool.GetMinThreads(out minThreads, out completionPortThreads);
-                int availableThreads;
-                ThreadPool.GetAvailableThreads(out availableThreads, out completionPortThreads);
-                inUseThreads = maxThreads - availableThreads;
-                allocatedThreads = -1;
-                waitingCallbacks = -1;
-            }
-
-            if (threadPoolUsed != null)
-            {
-                sb.AppendFormat("Thread pool used           : {0}\n", threadPoolUsed);
-                sb.AppendFormat("Max threads                : {0}\n", maxThreads);
-                sb.AppendFormat("Min threads                : {0}\n", minThreads);
-                sb.AppendFormat("Allocated threads          : {0}\n", allocatedThreads < 0 ? "not applicable" : allocatedThreads.ToString());
-                sb.AppendFormat("In use threads             : {0}\n", inUseThreads);
-                sb.AppendFormat("Work items waiting         : {0}\n", waitingCallbacks < 0 ? "not available" : waitingCallbacks.ToString());
-            }
-            else
-            {
-                sb.AppendFormat("Thread pool not used\n");
-            }
-
-            return sb.ToString();
+            
+            return true;
         }
 
-        private static object SmartThreadPoolCallback(object o)
+        /// <summary>
+        /// Returns a stack trace for a thread added using FireAndForget().
+        /// </summary>
+        /// <param name="full">Will contain the full stack trace</param>
+        /// <param name="partial">Will contain only the first frame of the stack trace</param>
+        private static void GetFireAndForgetStackTrace(out string full, out string partial)
         {
-            object[] array = (object[])o;
-            WaitCallback callback = (WaitCallback)array[0];
-            object obj = array[1];
+            string src = Environment.StackTrace;
+            string[] lines = src.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
+            
+            StringBuilder dest = new StringBuilder(src.Length);
 
-            callback(obj);
-            return null;
+            bool started = false;
+            bool first = true;
+            partial = "";
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+
+                if (!started)
+                {
+                    // Skip the initial stack frames, because they're of no interest for debugging
+                    if (line.Contains("StackTrace") || line.Contains("FireAndForget"))
+                        continue;
+                    started = true;
+                }
+
+                if (first)
+                {
+                    line = line.TrimStart();
+                    first = false;
+                    partial = line;
+                }
+
+                bool last = (i == lines.Length - 1);
+                if (last)
+                    dest.Append(line);
+                else
+                    dest.AppendLine(line);
+            }
+
+            full = dest.ToString();
+        }
+
+#pragma warning disable 0618
+        /// <summary>
+        /// Return the stack trace of a different thread.
+        /// </summary>
+        /// <remarks>
+        /// This is complicated because the thread needs to be paused in order to get its stack
+        /// trace. And pausing another thread can cause a deadlock. This method attempts to
+        /// avoid deadlock by using a short timeout (200ms), after which it gives up and
+        /// returns 'null' instead of the stack trace.
+        /// 
+        /// Take from: http://stackoverflow.com/a/14935378
+        /// 
+        /// WARNING: this doesn't work in Mono. See https://bugzilla.novell.com/show_bug.cgi?id=571691
+        /// 
+        /// </remarks>
+        /// <returns>The stack trace, or null if failed to get it</returns>
+        private static StackTrace GetStackTrace(Thread targetThread)
+        {
+            if (IsPlatformMono)
+            {
+                // This doesn't work in Mono
+                return null;
+            }
+
+            ManualResetEventSlim fallbackThreadReady = new ManualResetEventSlim();
+            ManualResetEventSlim exitedSafely = new ManualResetEventSlim();
+
+            try
+            {
+                new Thread(delegate()
+                {
+                    fallbackThreadReady.Set();
+                    while (!exitedSafely.Wait(200))
+                    {
+                        try
+                        {
+                            targetThread.Resume();
+                        }
+                        catch (Exception)
+                        {
+                            // Whatever happens, do never stop to resume the main-thread regularly until the main-thread has exited safely.
+                        }
+                    }
+                }).Start();
+
+                fallbackThreadReady.Wait();
+                // From here, you have about 200ms to get the stack-trace
+
+                targetThread.Suspend();
+
+                StackTrace trace = null;
+                try
+                {
+                    trace = new StackTrace(targetThread, true);
+                }
+                catch (ThreadStateException)
+                {
+                    //failed to get stack trace, since the fallback-thread resumed the thread
+                    //possible reasons:
+                    //1.) This thread was just too slow
+                    //2.) A deadlock ocurred
+                    //Automatic retry seems too risky here, so just return null.
+                }
+
+                try
+                {
+                    targetThread.Resume();
+                }
+                catch (ThreadStateException)
+                {
+                    // Thread is running again already
+                }
+
+                return trace;
+            }
+            finally
+            {
+                // Signal the fallack-thread to stop
+                exitedSafely.Set();
+            }
+        }
+#pragma warning restore 0618
+
+        /// <summary>
+        /// Get information about the current state of the smart thread pool.
+        /// </summary>
+        /// <returns>
+        /// null if this isn't the pool being used for non-scriptengine threads.
+        /// </returns>
+        public static STPInfo GetSmartThreadPoolInfo()
+        {
+            if (m_ThreadPool == null)
+                return null;
+
+            STPInfo stpi = new STPInfo();
+            stpi.Name = m_ThreadPool.Name;
+            stpi.STPStartInfo = m_ThreadPool.STPStartInfo;
+            stpi.IsIdle = m_ThreadPool.IsIdle;
+            stpi.IsShuttingDown = m_ThreadPool.IsShuttingdown;
+            stpi.MaxThreads = m_ThreadPool.MaxThreads;
+            stpi.MinThreads = m_ThreadPool.MinThreads;
+            stpi.InUseThreads = m_ThreadPool.InUseThreads;
+            stpi.ActiveThreads = m_ThreadPool.ActiveThreads;
+            stpi.WaitingCallbacks = m_ThreadPool.WaitingCallbacks;
+            stpi.MaxConcurrentWorkItems = m_ThreadPool.Concurrency;
+
+            return stpi;
         }
 
         #endregion FireAndForget Threading Pattern
@@ -1873,6 +2555,60 @@ namespace OpenSim.Framework
                 tcB += EnvironmentTickCountMask + 1;
 
             return tcA - tcB;
+        }
+
+        /// <summary>
+        /// Formats a duration (given in milliseconds).
+        /// </summary>
+        public static string FormatDuration(int ms)
+        {
+            TimeSpan span = new TimeSpan(ms * TimeSpan.TicksPerMillisecond);
+
+            string str = "";
+            string suffix = null;
+
+            int hours = (int)span.TotalHours;
+            if (hours > 0)
+            {
+                str += hours.ToString(str.Length == 0 ? "0" : "00");
+                suffix = "hours";
+            }
+
+            if ((hours > 0) || (span.Minutes > 0))
+            {
+                if (str.Length > 0)
+                    str += ":";
+                str += span.Minutes.ToString(str.Length == 0 ? "0" : "00");
+                if (suffix == null)
+                    suffix = "min";
+            }
+
+            if ((hours > 0) || (span.Minutes > 0) || (span.Seconds > 0))
+            {
+                if (str.Length > 0)
+                    str += ":";
+                str += span.Seconds.ToString(str.Length == 0 ? "0" : "00");
+                if (suffix == null)
+                    suffix = "sec";
+            }
+
+            if (suffix == null)
+                suffix = "ms";
+
+            if (span.TotalMinutes < 1)
+            {
+                int ms1 = span.Milliseconds;
+                if (str.Length > 0)
+                {
+                    ms1 /= 100;
+                    str += ".";
+                }
+                str += ms1.ToString("0");
+            }
+
+            str += " " + suffix;
+
+            return str;
         }
 
         /// <summary>
@@ -1942,16 +2678,18 @@ namespace OpenSim.Framework
         }
 
         #region Xml Serialization Utilities
-        public static bool ReadBoolean(XmlTextReader reader)
+        public static bool ReadBoolean(XmlReader reader)
         {
+            // AuroraSim uses "int" for some fields that are boolean in OpenSim, e.g. "PassCollisions". Don't fail because of this.
             reader.ReadStartElement();
-            bool result = Boolean.Parse(reader.ReadContentAsString().ToLower());
+            string val = reader.ReadContentAsString().ToLower();
+            bool result = val.Equals("true") || val.Equals("1");
             reader.ReadEndElement();
 
             return result;
         }
 
-        public static UUID ReadUUID(XmlTextReader reader, string name)
+        public static UUID ReadUUID(XmlReader reader, string name)
         {
             UUID id;
             string idStr;
@@ -1970,7 +2708,7 @@ namespace OpenSim.Framework
             return id;
         }
 
-        public static Vector3 ReadVector(XmlTextReader reader, string name)
+        public static Vector3 ReadVector(XmlReader reader, string name)
         {
             Vector3 vec;
 
@@ -1983,7 +2721,7 @@ namespace OpenSim.Framework
             return vec;
         }
 
-        public static Quaternion ReadQuaternion(XmlTextReader reader, string name)
+        public static Quaternion ReadQuaternion(XmlReader reader, string name)
         {
             Quaternion quat = new Quaternion();
 
@@ -2012,7 +2750,7 @@ namespace OpenSim.Framework
             return quat;
         }
 
-        public static T ReadEnum<T>(XmlTextReader reader, string name)
+        public static T ReadEnum<T>(XmlReader reader, string name)
         {
             string value = reader.ReadElementContentAsString(name, String.Empty);
             // !!!!! to deal with flags without commas
@@ -2024,7 +2762,9 @@ namespace OpenSim.Framework
         #endregion
 
         #region Universal User Identifiers
-       /// <summary>
+
+        /// <summary>
+        /// Attempts to parse a UUI into its components: UUID, name and URL.
         /// </summary>
         /// <param name="value">uuid[;endpoint[;first last[;secret]]]</param>
         /// <param name="uuid">the uuid part</param>
@@ -2034,7 +2774,7 @@ namespace OpenSim.Framework
         /// <param name="secret">the secret part</param>
         public static bool ParseUniversalUserIdentifier(string value, out UUID uuid, out string url, out string firstname, out string lastname, out string secret)
         {
-            uuid = UUID.Zero; url = string.Empty; firstname = "Unknown"; lastname = "User"; secret = string.Empty;
+            uuid = UUID.Zero; url = string.Empty; firstname = "Unknown"; lastname = "UserUPUUI"; secret = string.Empty;
 
             string[] parts = value.Split(';');
             if (parts.Length >= 1)
@@ -2055,6 +2795,27 @@ namespace OpenSim.Framework
             }
             if (parts.Length >= 4)
                 secret = parts[3];
+
+            return true;
+        }
+
+        /// <summary>
+        /// For foreign avatars, extracts their original name and Server URL from their First Name and Last Name.
+        /// </summary>
+        public static bool ParseForeignAvatarName(string firstname, string lastname,
+            out string realFirstName, out string realLastName, out string serverURI)
+        {
+            realFirstName = realLastName = serverURI = string.Empty;
+
+            if (!lastname.Contains("@"))
+                return false;
+
+            if (!firstname.Contains("."))
+                return false;
+
+            realFirstName = firstname.Split('.')[0];
+            realLastName = firstname.Split('.')[1];
+            serverURI = new Uri("http://" + lastname.Replace("@", "")).ToString();
 
             return true;
         }
@@ -2092,10 +2853,15 @@ namespace OpenSim.Framework
             {
                 string[] parts = firstName.Split(new char[] { '.' });
                 if (parts.Length == 2)
-                    return id.ToString() + ";" + agentsURI + ";" + parts[0] + " " + parts[1];
+                    return CalcUniversalIdentifier(id, agentsURI, parts[0] + " " + parts[1]);
             }
-            return id.ToString() + ";" + agentsURI + ";" + firstName + " " + lastName;
+            
+            return CalcUniversalIdentifier(id, agentsURI, firstName + " " + lastName);
+        }
 
+        private static string CalcUniversalIdentifier(UUID id, string agentsURI, string name)
+        {
+            return id.ToString() + ";" + agentsURI + ";" + name;
         }
 
         /// <summary>
@@ -2119,5 +2885,221 @@ namespace OpenSim.Framework
             return firstName + "." + lastName + " " + "@" + uri.Authority;
         }
         #endregion
+
+        /// <summary>
+        /// Escapes the special characters used in "LIKE".
+        /// </summary>
+        /// <remarks>
+        /// For example: EscapeForLike("foo_bar%baz") = "foo\_bar\%baz"
+        /// </remarks>
+        public static string EscapeForLike(string str)
+        {
+            return str.Replace("_", "\\_").Replace("%", "\\%");
+        }
+
+        /// <summary>
+        /// Returns the name of the user's viewer.
+        /// </summary>
+        /// <remarks>
+        /// This method handles two ways that viewers specify their name:
+        /// 1. Viewer = "Firestorm-Release 4.4.2.34167", Channel = "(don't care)" -> "Firestorm-Release 4.4.2.34167"
+        /// 2. Viewer = "4.5.1.38838", Channel = "Firestorm-Beta" -> "Firestorm-Beta 4.5.1.38838"
+        /// </remarks>
+        public static string GetViewerName(AgentCircuitData agent)
+        {
+            string name = agent.Viewer;
+            if (name == null)
+                name = "";
+            else
+                name = name.Trim();
+
+            // Check if 'Viewer' is just a version number. If it's *not*, then we
+            // assume that it contains the real viewer name, and we return it.
+            foreach (char c in name)
+            {
+                if (Char.IsLetter(c))
+                    return name;
+            }
+
+            // The 'Viewer' string contains just a version number. If there's anything in
+            // 'Channel' then assume that it's the viewer name.
+            if ((agent.Channel != null) && (agent.Channel.Length > 0))
+                name = agent.Channel.Trim() + " " + name;
+
+            return name;
+        }
+
+        public static void LogFailedXML(string message, string xml)
+        {
+            int length = xml.Length;
+            if (length > 2000)
+                xml = xml.Substring(0, 2000) + "...";
+
+            m_log.ErrorFormat("{0} Failed XML ({1} bytes) = {2}", message, length, xml);
+        }
+
+    }
+
+    public class DoubleQueue<T> where T:class
+    {
+        private Queue<T> m_lowQueue = new Queue<T>();
+        private Queue<T> m_highQueue = new Queue<T>();
+
+        private object m_syncRoot = new object();
+        private Semaphore m_s = new Semaphore(0, 1);
+
+        public DoubleQueue()
+        {
+        }
+
+        public virtual int Count
+        {
+            get 
+            { 
+                lock (m_syncRoot)
+                    return m_highQueue.Count + m_lowQueue.Count; 
+            }
+        }
+
+        public virtual void Enqueue(T data)
+        {
+            Enqueue(m_lowQueue, data);
+        }
+
+        public virtual void EnqueueLow(T data)
+        {
+            Enqueue(m_lowQueue, data);
+        }
+
+        public virtual void EnqueueHigh(T data)
+        {
+            Enqueue(m_highQueue, data);
+        }
+
+        private void Enqueue(Queue<T> q, T data)
+        {
+            lock (m_syncRoot)
+            {
+                q.Enqueue(data);
+                m_s.WaitOne(0);
+                m_s.Release();
+            }
+        }
+
+        public virtual T Dequeue()
+        {
+            return Dequeue(Timeout.Infinite);
+        }
+
+        public virtual T Dequeue(int tmo)
+        {
+            return Dequeue(TimeSpan.FromMilliseconds(tmo));
+        }
+
+        public virtual T Dequeue(TimeSpan wait)
+        {
+            T res = null;
+
+            if (!Dequeue(wait, ref res))
+                return null;
+
+            return res;
+        }
+
+        public bool Dequeue(int timeout, ref T res)
+        {
+            return Dequeue(TimeSpan.FromMilliseconds(timeout), ref res);
+        }
+
+        public bool Dequeue(TimeSpan wait, ref T res)
+        {
+            if (!m_s.WaitOne(wait))
+                return false;
+
+            lock (m_syncRoot)
+            {
+                if (m_highQueue.Count > 0)
+                    res = m_highQueue.Dequeue();
+                else if (m_lowQueue.Count > 0)
+                    res = m_lowQueue.Dequeue();
+
+                if (m_highQueue.Count == 0 && m_lowQueue.Count == 0)
+                    return true;
+
+                try
+                {
+                    m_s.Release();
+                }
+                catch
+                {
+                }
+
+                return true;
+            }
+        }
+
+        public virtual void Clear()
+        {
+
+            lock (m_syncRoot)
+            {
+                // Make sure sem count is 0
+                m_s.WaitOne(0);
+
+                m_lowQueue.Clear();
+                m_highQueue.Clear();
+            }
+        }
+    }
+
+    public class BetterRandom
+    {
+        private const int BufferSize = 1024;  // must be a multiple of 4
+        private byte[] RandomBuffer;
+        private int BufferOffset;
+        private RNGCryptoServiceProvider rng;
+        public BetterRandom()
+        {
+            RandomBuffer = new byte[BufferSize];
+            rng = new RNGCryptoServiceProvider();
+            BufferOffset = RandomBuffer.Length;
+        }
+        private void FillBuffer()
+        {
+            rng.GetBytes(RandomBuffer);
+            BufferOffset = 0;
+        }
+        public int Next()
+        {
+            if (BufferOffset >= RandomBuffer.Length)
+            {
+                FillBuffer();
+            }
+            int val = BitConverter.ToInt32(RandomBuffer, BufferOffset) & 0x7fffffff;
+            BufferOffset += sizeof(int);
+            return val;
+        }
+        public int Next(int maxValue)
+        {
+            return Next() % maxValue;
+        }
+        public int Next(int minValue, int maxValue)
+        {
+            if (maxValue < minValue)
+            {
+                throw new ArgumentOutOfRangeException("maxValue must be greater than or equal to minValue");
+            }
+            int range = maxValue - minValue;
+            return minValue + Next(range);
+        }
+        public double NextDouble()
+        {
+            int val = Next();
+            return (double)val / int.MaxValue;
+        }
+        public void GetBytes(byte[] buff)
+        {
+            rng.GetBytes(buff);
+        }
     }
 }

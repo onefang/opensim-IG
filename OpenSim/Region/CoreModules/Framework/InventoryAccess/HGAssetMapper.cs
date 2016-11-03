@@ -35,6 +35,7 @@ using System.Xml;
 using log4net;
 using OpenMetaverse;
 using OpenSim.Framework;
+using OpenSim.Framework.Serialization.External;
 
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Scenes.Serialization;
@@ -73,6 +74,9 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
 
         private AssetMetadata FetchMetadata(string url, UUID assetID)
         {
+            if (string.IsNullOrEmpty(url))
+                return null;
+
             if (!url.EndsWith("/") && !url.EndsWith("="))
                 url = url + "/";
 
@@ -92,6 +96,9 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
             AssetBase asset = m_scene.AssetService.Get(assetID.ToString());
             if (asset == null)
             {
+                if (string.IsNullOrEmpty(url))
+                    return null;
+
                 if (!url.EndsWith("/") && !url.EndsWith("="))
                     url = url + "/";
 
@@ -109,45 +116,47 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
 
         public bool PostAsset(string url, AssetBase asset)
         {
-            if (asset != null)
+            if (string.IsNullOrEmpty(url))
+                return false;
+
+            if (!url.EndsWith("/") && !url.EndsWith("="))
+                url = url + "/";
+
+            if (asset == null)
             {
-                if (!url.EndsWith("/") && !url.EndsWith("="))
-                    url = url + "/";
-
-                bool success = true;
-                // See long comment in AssetCache.AddAsset
-                if (!asset.Temporary || asset.Local)
-                {
-                    // We need to copy the asset into a new asset, because
-                    // we need to set its ID to be URL+UUID, so that the
-                    // HGAssetService dispatches it to the remote grid.
-                    // It's not pretty, but the best that can be done while
-                    // not having a global naming infrastructure
-                    AssetBase asset1 = new AssetBase(asset.FullID, asset.Name, asset.Type, asset.Metadata.CreatorID);
-                    Copy(asset, asset1);
-                    asset1.ID = url + asset.ID;
-
-                    AdjustIdentifiers(asset1.Metadata);
-                    if (asset1.Metadata.Type == (sbyte)AssetType.Object)
-                        asset1.Data = AdjustIdentifiers(asset.Data);
-                    else
-                        asset1.Data = asset.Data;
-
-                    string id = m_scene.AssetService.Store(asset1);
-                    if (id == string.Empty)
-                    {
-                        m_log.DebugFormat("[HG ASSET MAPPER]: Asset server {0} did not accept {1}", url, asset.ID);
-                        success = false;
-                    }
-                    else
-                        m_log.DebugFormat("[HG ASSET MAPPER]: Posted copy of asset {0} from local asset server to {1}", asset1.ID, url);
-                }
-                return success;
-            }
-            else
                 m_log.Warn("[HG ASSET MAPPER]: Tried to post asset to remote server, but asset not in local cache.");
+                return false;
+            }
 
-            return false;
+            // See long comment in AssetCache.AddAsset
+            if (asset.Temporary || asset.Local)
+                return true;
+
+            // We need to copy the asset into a new asset, because
+            // we need to set its ID to be URL+UUID, so that the
+            // HGAssetService dispatches it to the remote grid.
+            // It's not pretty, but the best that can be done while
+            // not having a global naming infrastructure
+            AssetBase asset1 = new AssetBase(asset.FullID, asset.Name, asset.Type, asset.Metadata.CreatorID);
+            Copy(asset, asset1);
+            asset1.ID = url + asset.ID;
+
+            AdjustIdentifiers(asset1.Metadata);
+            if (asset1.Metadata.Type == (sbyte)AssetType.Object)
+                asset1.Data = AdjustIdentifiers(asset.Data);
+            else
+                asset1.Data = asset.Data;
+
+            string id = m_scene.AssetService.Store(asset1);
+            if (String.IsNullOrEmpty(id))
+            {
+                m_log.DebugFormat("[HG ASSET MAPPER]: Asset server {0} did not accept {1}", url, asset.ID);
+                return false;
+            }
+            else {
+                m_log.DebugFormat("[HG ASSET MAPPER]: Posted copy of asset {0} from local asset server to {1}", asset1.ID, url);
+                return true;
+            }
         }
 
         private void Copy(AssetBase from, AssetBase to)
@@ -165,7 +174,7 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
 
         private void AdjustIdentifiers(AssetMetadata meta)
         {
-            if (meta.CreatorID != null && meta.CreatorID != string.Empty)
+            if (!string.IsNullOrEmpty(meta.CreatorID))
             {
                 UUID uuid = UUID.Zero;
                 UUID.TryParse(meta.CreatorID, out uuid);
@@ -181,49 +190,10 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
             return Utils.StringToBytes(RewriteSOP(xml));
         }
 
-        protected string RewriteSOP(string xml)
+        protected string RewriteSOP(string xmlData)
         {
-            XmlDocument doc = new XmlDocument();
-            doc.LoadXml(xml);
-            XmlNodeList sops = doc.GetElementsByTagName("SceneObjectPart");
-
-            foreach (XmlNode sop in sops)
-            {
-                UserAccount creator = null;
-                bool hasCreatorData = false;
-                XmlNodeList nodes = sop.ChildNodes;
-                foreach (XmlNode node in nodes)
-                {
-                    if (node.Name == "CreatorID")
-                    {
-                        UUID uuid = UUID.Zero;
-                        UUID.TryParse(node.InnerText, out uuid);
-                        creator = m_scene.UserAccountService.GetUserAccount(m_scene.RegionInfo.ScopeID, uuid);
-                    }
-                    if (node.Name == "CreatorData" && node.InnerText != null && node.InnerText != string.Empty)
-                        hasCreatorData = true;
-
-                    //if (node.Name == "OwnerID")
-                    //{
-                    //    UserAccount owner = GetUser(node.InnerText);
-                    //    if (owner != null)
-                    //        node.InnerText = m_ProfileServiceURL + "/" + node.InnerText + "/" + owner.FirstName + " " + owner.LastName;
-                    //}
-                }
-
-                if (!hasCreatorData && creator != null)
-                {
-                    XmlElement creatorData = doc.CreateElement("CreatorData");
-                    creatorData.InnerText = m_HomeURI + ";" + creator.FirstName + " " + creator.LastName;
-                    sop.AppendChild(creatorData);
-                }
-            }
-
-            using (StringWriter wr = new StringWriter())
-            {
-                doc.Save(wr);
-                return wr.ToString();
-            }
+//            Console.WriteLine("Input XML [{0}]", xmlData);
+            return ExternalRepresentationUtils.RewriteSOP(xmlData, m_scene.Name, m_HomeURI, m_scene.UserAccountService, m_scene.RegionInfo.ScopeID);
 
         }
 
@@ -251,12 +221,13 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
 
             // The act of gathering UUIDs downloads some assets from the remote server
             // but not all...
-            Dictionary<UUID, AssetType> ids = new Dictionary<UUID, AssetType>();
             HGUuidGatherer uuidGatherer = new HGUuidGatherer(m_scene.AssetService, userAssetURL);
-            uuidGatherer.GatherAssetUuids(assetID, (AssetType)meta.Type, ids);
-            m_log.DebugFormat("[HG ASSET MAPPER]: Preparing to get {0} assets", ids.Count);
+            uuidGatherer.AddForInspection(assetID);
+            uuidGatherer.GatherAll();
+
+            m_log.DebugFormat("[HG ASSET MAPPER]: Preparing to get {0} assets", uuidGatherer.GatheredUuids.Count);
             bool success = true;
-            foreach (UUID uuid in ids.Keys)
+            foreach (UUID uuid in uuidGatherer.GatheredUuids.Keys)
                 if (FetchAsset(userAssetURL, uuid) == null)
                     success = false;
 
@@ -267,39 +238,92 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
                 m_log.DebugFormat("[HG ASSET MAPPER]: Successfully got item {0} from asset server {1}", assetID, userAssetURL);
         }
 
-
         public void Post(UUID assetID, UUID ownerID, string userAssetURL)
         {
-                // Post the item from the local AssetCache onto the remote asset server
-                // and place an entry in m_assetMap
+            m_log.DebugFormat("[HG ASSET MAPPER]: Starting to send asset {0} with children to asset server {1}", assetID, userAssetURL);
 
-            m_log.Debug("[HG ASSET MAPPER]: Posting object " + assetID + " to asset server " + userAssetURL);
+            // Find all the embedded assets
+
             AssetBase asset = m_scene.AssetService.Get(assetID.ToString());
-            if (asset != null)
+            if (asset == null)
             {
-                Dictionary<UUID, AssetType> ids = new Dictionary<UUID, AssetType>();
-                HGUuidGatherer uuidGatherer = new HGUuidGatherer(m_scene.AssetService, string.Empty);
-                uuidGatherer.GatherAssetUuids(asset.FullID, (AssetType)asset.Type, ids);
-                bool success = false;
-                foreach (UUID uuid in ids.Keys)
+                m_log.DebugFormat("[HG ASSET MAPPER]: Something wrong with asset {0}, it could not be found", assetID);
+                return;
+            }
+
+            HGUuidGatherer uuidGatherer = new HGUuidGatherer(m_scene.AssetService, string.Empty);
+            uuidGatherer.AddForInspection(asset.FullID);
+            uuidGatherer.GatherAll();
+
+            // Check which assets already exist in the destination server
+
+            string url = userAssetURL;
+            if (!url.EndsWith("/") && !url.EndsWith("="))
+                url = url + "/";
+
+            string[] remoteAssetIDs = new string[uuidGatherer.GatheredUuids.Count];
+            int i = 0;
+            foreach (UUID id in uuidGatherer.GatheredUuids.Keys)
+                remoteAssetIDs[i++] = url + id.ToString();
+
+            bool[] exist = m_scene.AssetService.AssetsExist(remoteAssetIDs);
+
+            var existSet = new HashSet<string>();
+            i = 0;
+            foreach (UUID id in uuidGatherer.GatheredUuids.Keys)
+            {
+                if (exist[i])
+                    existSet.Add(id.ToString());
+                ++i;
+            }
+
+            // Send only those assets which don't already exist in the destination server
+
+            bool success = true;
+
+            foreach (UUID uuid in uuidGatherer.GatheredUuids.Keys)
+            {
+                if (!existSet.Contains(uuid.ToString()))
                 {
                     asset = m_scene.AssetService.Get(uuid.ToString());
                     if (asset == null)
+                    {
                         m_log.DebugFormat("[HG ASSET MAPPER]: Could not find asset {0}", uuid);
+                    }
                     else
-                        success = PostAsset(userAssetURL, asset);
+                    {
+                        try
+                        {
+                            success &= PostAsset(userAssetURL, asset);
+                        }
+                        catch (Exception e)
+                        {
+                            m_log.Error(
+                                string.Format(
+                                    "[HG ASSET MAPPER]: Failed to post asset {0} (type {1}, length {2}) referenced from {3} to {4} with exception  ", 
+                                    asset.ID, asset.Type, asset.Data.Length, assetID, userAssetURL), 
+                                e);
+
+                            // For debugging purposes for now we will continue to throw the exception up the stack as was already happening.  However, after
+                            // debugging we may want to simply report the failure if we can tell this is due to a failure
+                            // with a particular asset and not a destination network failure where all asset posts will fail (and
+                            // generate large amounts of log spam).
+                            throw e;
+                        }
+                    }
                 }
-
-                // maybe all pieces got there...
-                if (!success)
-                    m_log.DebugFormat("[HG ASSET MAPPER]: Problems posting item {0} to asset server {1}", assetID, userAssetURL);
                 else
-                    m_log.DebugFormat("[HG ASSET MAPPER]: Successfully posted item {0} to asset server {1}", assetID, userAssetURL);
-
+                {
+                    m_log.DebugFormat(
+                        "[HG ASSET MAPPER]: Didn't post asset {0} referenced from {1} because it already exists in asset server {2}", 
+                        uuid, assetID, userAssetURL);
+                }
             }
-            else
-                m_log.DebugFormat("[HG ASSET MAPPER]: Something wrong with asset {0}, it could not be found", assetID);
 
+            if (!success)
+                m_log.DebugFormat("[HG ASSET MAPPER]: Problems sending asset {0} with children to asset server {1}", assetID, userAssetURL);
+            else
+                m_log.DebugFormat("[HG ASSET MAPPER]: Successfully sent asset {0} with children to asset server {1}", assetID, userAssetURL);
         }
 
         #endregion

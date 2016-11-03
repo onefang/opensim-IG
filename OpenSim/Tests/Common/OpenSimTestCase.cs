@@ -27,6 +27,8 @@
 
 using System;
 using NUnit.Framework;
+using OpenSim.Framework;
+using OpenSim.Framework.Servers;
 
 namespace OpenSim.Tests.Common
 {
@@ -36,11 +38,18 @@ namespace OpenSim.Tests.Common
         [SetUp]
         public virtual void SetUp()
         {
-//            TestHelpers.InMethod();
+            //TestHelpers.InMethod();
             // Disable logging for each test so that one where logging is enabled doesn't cause all subsequent tests
             // to have logging on if it failed with an exception.
             TestHelpers.DisableLogging();
+
+            // This is an unfortunate bit of clean up we have to do because MainServer manages things through static
+            // variables and the VM is not restarted between tests.
+            if (MainServer.Instance != null)
+            {
+                MainServer.RemoveHttpServer(MainServer.Instance.Port);
+//                MainServer.Instance = null;
+            }
         }
     }
 }
-

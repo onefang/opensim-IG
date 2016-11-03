@@ -35,7 +35,8 @@ using System.Reflection;
 using Nini.Config;
 using OpenSim.Framework;
 using OpenSim.Framework.Console;
-using OpenSim.Framework.Communications;
+
+using OpenSim.Framework.ServiceAuth;
 using OpenSim.Server.Base;
 using OpenSim.Services.Interfaces;
 using OpenMetaverse;
@@ -43,7 +44,7 @@ using OpenMetaverse.StructuredData;
 
 namespace OpenSim.Services.Connectors
 {
-    public class MapImageServicesConnector : IMapImageService
+    public class MapImageServicesConnector : BaseServiceConnector, IMapImageService
     {
         private static readonly ILog m_log =
                 LogManager.GetLogger(
@@ -84,26 +85,26 @@ namespace OpenSim.Services.Connectors
             }
             m_ServerURI = serviceURI;
             m_ServerURI = serviceURI.TrimEnd('/');
+            base.Initialise(source, "MapImageService");
         }
 
-        public bool AddMapTile(int x, int y, byte[] jpgData, out string reason)
+        public bool RemoveMapTile(int x, int y, out string reason)
         {
             reason = string.Empty;
             int tickstart = Util.EnvironmentTickCount();
             Dictionary<string, object> sendData = new Dictionary<string, object>();
             sendData["X"] = x.ToString();
             sendData["Y"] = y.ToString();
-            sendData["TYPE"] = "image/jpeg";
-            sendData["DATA"] = Convert.ToBase64String(jpgData);
 
             string reqString = ServerUtils.BuildQueryString(sendData);
-            string uri = m_ServerURI + "/map";
+            string uri = m_ServerURI + "/removemap";
 
             try
             {
                 string reply = SynchronousRestFormsRequester.MakeRequest("POST",
                         uri,
-                        reqString);
+                        reqString,
+                        m_Auth);
                 if (reply != string.Empty)
                 {
                     Dictionary<string, object> replyData = ServerUtils.ParseXmlResponse(reply);
@@ -114,7 +115,7 @@ namespace OpenSim.Services.Connectors
                     }
                     else if (replyData.ContainsKey("Result") && (replyData["Result"].ToString().ToLower() == "failure"))
                     {
-                        m_log.DebugFormat("[MAP IMAGE CONNECTOR]: Registration failed: {0}", replyData["Message"].ToString());
+                        m_log.DebugFormat("[MAP IMAGE CONNECTOR]: Delete failed: {0}", replyData["Message"].ToString());
                         reason = replyData["Message"].ToString();
                         return false;
                     }
@@ -137,6 +138,72 @@ namespace OpenSim.Services.Connectors
             catch (Exception e)
             {
                 m_log.DebugFormat("[MAP IMAGE CONNECTOR]: Exception when contacting map server at {0}: {1}", uri, e.Message);
+            }
+            finally
+            {
+                // This just dumps a warning for any operation that takes more than 100 ms
+                int tickdiff = Util.EnvironmentTickCountSubtract(tickstart);
+                m_log.DebugFormat("[MAP IMAGE CONNECTOR]: map tile deleted in {0}ms", tickdiff);
+            }
+
+            return false;
+        }
+
+        public bool AddMapTile(int x, int y, byte[] jpgData, out string reason)
+        {
+            reason = string.Empty;
+            int tickstart = Util.EnvironmentTickCount();
+            Dictionary<string, object> sendData = new Dictionary<string, object>();
+            sendData["X"] = x.ToString();
+            sendData["Y"] = y.ToString();
+            sendData["TYPE"] = "image/jpeg";
+            sendData["DATA"] = Convert.ToBase64String(jpgData);
+
+            string reqString = ServerUtils.BuildQueryString(sendData);
+            string uri = m_ServerURI + "/map";
+
+            try
+            {
+                string reply = SynchronousRestFormsRequester.MakeRequest("POST",
+                        uri,
+                        reqString,
+                        m_Auth);
+                if (reply != string.Empty)
+                {
+                    Dictionary<string, object> replyData = ServerUtils.ParseXmlResponse(reply);
+
+                    if (replyData.ContainsKey("Result") && (replyData["Result"].ToString().ToLower() == "success"))
+                    {
+                        return true;
+                    }
+                    else if (replyData.ContainsKey("Result") && (replyData["Result"].ToString().ToLower() == "failure"))
+                    {
+                        reason = string.Format("Map post to {0} failed: {1}", uri, replyData["Message"].ToString());
+                        m_log.WarnFormat("[MAP IMAGE CONNECTOR]: {0}", reason);
+
+                        return false;
+                    }
+                    else if (!replyData.ContainsKey("Result"))
+                    {
+                        reason = string.Format("Reply data from {0} does not contain result field", uri);
+                        m_log.WarnFormat("[MAP IMAGE CONNECTOR]: {0}", reason);
+                    }
+                    else
+                    {
+                        reason = string.Format("Unexpected result {0} from {1}" + replyData["Result"].ToString(), uri);
+                        m_log.WarnFormat("[MAP IMAGE CONNECTOR]: {0}", reason);
+                    }
+                }
+                else
+                {
+                    reason = string.Format("Map post received null reply from {0}", uri);
+                    m_log.WarnFormat("[MAP IMAGE CONNECTOR]: {0}", reason);
+                }
+            }
+            catch (Exception e)
+            {
+                reason = string.Format("Exception when posting to map server at {0}: {1}", uri, e.Message);
+                m_log.WarnFormat("[MAP IMAGE CONNECTOR]: {0}", reason);
             }
             finally
             {

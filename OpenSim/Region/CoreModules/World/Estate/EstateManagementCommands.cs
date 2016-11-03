@@ -39,6 +39,7 @@ using OpenSim.Framework.Console;
 using OpenSim.Region.CoreModules.Framework.InterfaceCommander;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
+using OpenSim.Services.Interfaces;
 
 namespace OpenSim.Region.CoreModules.World.Estate
 {
@@ -50,9 +51,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         
         protected EstateManagementModule m_module;
-        
-        protected Commander m_commander = new Commander("estate");
-        
+
         public EstateManagementCommands(EstateManagementModule module)
         {
             m_module = module;
@@ -60,7 +59,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
         
         public void Initialise()
         {            
-            m_log.DebugFormat("[ESTATE MODULE]: Setting up estate commands for region {0}", m_module.Scene.RegionInfo.RegionName);
+//            m_log.DebugFormat("[ESTATE MODULE]: Setting up estate commands for region {0}", m_module.Scene.RegionInfo.RegionName);
             
             m_module.Scene.AddCommand("Regions", m_module, "set terrain texture",
                                "set terrain texture <number> <uuid> [<x>] [<y>]",
@@ -76,12 +75,19 @@ namespace OpenSim.Region.CoreModules.World.Estate
                                " that coordinate. Corner # SW = 0, NW = 1, SE = 2, NE = 3, all corners = -1.",
                                consoleSetTerrainHeights);
 
+            m_module.Scene.AddCommand("Regions", m_module, "set water height",
+                               "set water height <height> [<x>] [<y>]",
+                               "Sets the water height in meters.  If <x> and <y> are specified, it will only set it on regions with a matching coordinate. " + 
+                               "Specify -1 in <x> or <y> to wildcard that coordinate.",
+                               consoleSetWaterHeight);
+
             m_module.Scene.AddCommand(
                 "Estates", m_module, "estate show", "estate show", "Shows all estates on the simulator.", ShowEstatesCommand);
-        }       
+        }
         
         public void Close() {}
-        
+
+        #region CommandHandlers
         protected void consoleSetTerrainTexture(string module, string[] args)
         {
             string num = args[3];
@@ -121,7 +127,29 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 }
             }
         }
- 
+        protected void consoleSetWaterHeight(string module, string[] args)
+        {
+            string heightstring = args[3];
+           
+            int x = (args.Length > 4 ? int.Parse(args[4]) : -1);
+            int y = (args.Length > 5 ? int.Parse(args[5]) : -1);
+
+            if (x == -1 || m_module.Scene.RegionInfo.RegionLocX == x)
+            {
+                if (y == -1 || m_module.Scene.RegionInfo.RegionLocY == y)
+                {
+                    double selectedheight = double.Parse(heightstring);
+
+                    m_log.Debug("[ESTATEMODULE]: Setting water height in " + m_module.Scene.RegionInfo.RegionName + " to " +
+                                string.Format(" {0}", selectedheight));
+                    m_module.Scene.RegionInfo.RegionSettings.WaterHeight = selectedheight;
+                    
+                    m_module.Scene.RegionInfo.RegionSettings.Save();
+                    m_module.TriggerRegionInfoChange();
+                    m_module.sendRegionHandshakeToAll();
+                }
+            }
+        }     
         protected void consoleSetTerrainHeights(string module, string[] args)
         {
             string num = args[3];
@@ -196,6 +224,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 es.EstateName, es.EstateID, m_module.UserManager.GetUserName(es.EstateOwner));
             
             MainConsole.Instance.Output(report.ToString());
-        }         
+        }
+        #endregion
     }
 }

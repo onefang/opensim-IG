@@ -28,6 +28,7 @@
 using log4net;
 using Mono.Addins;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using Nini.Config;
@@ -186,18 +187,41 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
             return rinfo;
         }
 
+        // Get a region given its base world coordinates (in meters).
+        // NOTE: this is NOT 'get a region by some point in the region'. The coordinate MUST
+        //     be the base coordinate of the region.
+        // The coordinates are world coords (meters), NOT region units.
         public GridRegion GetRegionByPosition(UUID scopeID, int x, int y)
         {
+            ulong regionHandle = Util.RegionWorldLocToHandle((uint)x, (uint)y);
+            uint regionX = Util.WorldToRegionLoc((uint)x);
+            uint regionY = Util.WorldToRegionLoc((uint)y);
+            
+            // Sanity check
+            if ((Util.RegionToWorldLoc(regionX) != (uint)x) || (Util.RegionToWorldLoc(regionY) != (uint)y))
+            {
+                m_log.WarnFormat("[REMOTE GRID CONNECTOR]: GetRegionByPosition. Bad position requested: not the base of the region. Requested Pos=<{0},{1}>, Should Be=<{2},{3}>",
+                    x, y, Util.RegionToWorldLoc(regionX), Util.RegionToWorldLoc(regionY));
+            }
+
             bool inCache = false;
-            GridRegion rinfo = m_RegionInfoCache.Get(scopeID, Util.UIntsToLong((uint)x, (uint)y), out inCache);
+            GridRegion rinfo = m_RegionInfoCache.Get(scopeID, regionHandle, out inCache);
             if (inCache)
+            {
+                //m_log.DebugFormat("[REMOTE GRID CONNECTOR]: GetRegionByPosition. Found region {0} in cache. Pos=<{1},{2}>, RegionHandle={3}",
+                //    (rinfo == null) ? "<missing>" : rinfo.RegionName, regionX, regionY, (rinfo == null) ? regionHandle : rinfo.RegionHandle);
                 return rinfo;
+            }
 
             rinfo = m_LocalGridService.GetRegionByPosition(scopeID, x, y);
             if (rinfo == null)
                 rinfo = m_RemoteGridService.GetRegionByPosition(scopeID, x, y);
 
             m_RegionInfoCache.Cache(rinfo);
+            
+            //m_log.DebugFormat("[REMOTE GRID CONNECTOR]: GetRegionByPosition. Added region {0} to the cache. Pos=<{1},{2}>, RegionHandle={3}",
+            //    (rinfo == null) ? "<missing>" : rinfo.RegionName, regionX, regionY, (rinfo == null) ? regionHandle : rinfo.RegionHandle);
+
             return rinfo;
         }
 
@@ -277,6 +301,26 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
             return rinfo;
         }
 
+        public List<GridRegion> GetDefaultHypergridRegions(UUID scopeID)
+        {
+            List<GridRegion> rinfo = m_LocalGridService.GetDefaultHypergridRegions(scopeID);
+            //m_log.DebugFormat("[REMOTE GRID CONNECTOR]: Local GetDefaultHypergridRegions {0} found {1} regions", name, rinfo.Count);
+            List<GridRegion> grinfo = m_RemoteGridService.GetDefaultHypergridRegions(scopeID);
+
+            if (grinfo != null)
+            {
+                //m_log.DebugFormat("[REMOTE GRID CONNECTOR]: Remote GetDefaultHypergridRegions {0} found {1} regions", name, grinfo.Count);
+                foreach (GridRegion r in grinfo)
+                {
+                    m_RegionInfoCache.Cache(r);
+                    if (rinfo.Find(delegate(GridRegion gr) { return gr.RegionID == r.RegionID; }) == null)
+                        rinfo.Add(r);
+                }
+            }
+
+            return rinfo;
+        }
+
         public List<GridRegion> GetFallbackRegions(UUID scopeID, int x, int y)
         {
             List<GridRegion> rinfo = m_LocalGridService.GetFallbackRegions(scopeID, x, y);
@@ -324,6 +368,17 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
                 flags = m_RemoteGridService.GetRegionFlags(scopeID, regionID);
 
             return flags;
+        }
+
+        public Dictionary<string, object> GetExtraFeatures()
+        {
+            Dictionary<string, object> extraFeatures;
+            extraFeatures = m_LocalGridService.GetExtraFeatures();
+
+            if (extraFeatures.Count == 0)
+                extraFeatures = m_RemoteGridService.GetExtraFeatures();
+
+            return extraFeatures;
         }
         #endregion
     }

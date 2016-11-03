@@ -353,7 +353,12 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
                 // Position of a sensor in a child prim attached to an avatar
                 // will be still wrong. 
                 ScenePresence avatar = m_CmdManager.m_ScriptEngine.World.GetScenePresence(SensePoint.ParentGroup.AttachedAvatar);
-                q = avatar.Rotation * q;
+
+                // Don't proceed if the avatar for this attachment has since been removed from the scene.
+                if (avatar == null)
+                    return sensedEntities;
+
+                q = avatar.GetWorldRotation() * q;
             }
 
             LSL_Types.Quaternion r = new LSL_Types.Quaternion(q);
@@ -362,7 +367,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
 
             Vector3 ZeroVector = new Vector3(0, 0, 0);
 
-            bool nameSearch = (ts.name != null && ts.name != "");
+            bool nameSearch = !string.IsNullOrEmpty(ts.name);
 
             foreach (EntityBase ent in Entities)
             {
@@ -480,7 +485,12 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
                 // Position of a sensor in a child prim attached to an avatar
                 // will be still wrong. 
                 ScenePresence avatar = m_CmdManager.m_ScriptEngine.World.GetScenePresence(SensePoint.ParentGroup.AttachedAvatar);
-                q = avatar.Rotation * q;
+
+                // Don't proceed if the avatar for this attachment has since been removed from the scene.
+                if (avatar == null)
+                    return sensedEntities;
+
+                q = avatar.GetWorldRotation() * q;
             }
 
             LSL_Types.Quaternion r = new LSL_Types.Quaternion(q);
@@ -595,7 +605,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
                     return sensedEntities;
                 senseEntity(sp);
             }
-            else if (ts.name != null && ts.name != "")
+            else if (!string.IsNullOrEmpty(ts.name))
             {
                 ScenePresence sp;
                 // Try lookup by name will return if/when found

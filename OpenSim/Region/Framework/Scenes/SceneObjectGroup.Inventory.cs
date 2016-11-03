@@ -34,6 +34,7 @@ using OpenSim.Framework;
 using OpenSim.Region.Framework.Interfaces;
 using System.Collections.Generic;
 using System.Xml;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.Framework.Scenes
 {
@@ -65,6 +66,12 @@ namespace OpenSim.Region.Framework.Scenes
         public int CreateScriptInstances(int startParam, bool postOnRez, string engine, int stateSource)
         {
             int scriptsStarted = 0;
+
+            if (m_scene == null)
+            {
+                m_log.DebugFormat("[PRIM INVENTORY]: m_scene is null. Unable to create script instances");
+                return 0;
+            }
 
             // Don't start scripts if they're turned off in the region!
             if (!m_scene.RegionInfo.RegionSettings.DisableScripts)
@@ -258,6 +265,7 @@ namespace OpenSim.Region.Framework.Scenes
             for (int i = 0; i < parts.Length; i++)
             {
                 SceneObjectPart part = parts[i];
+//                m_log.DebugFormat("[SCENE OBJECT GROUP INVENTORY]: Effective perms of {0} are {1}", part.Name, (OpenMetaverse.PermissionMask)part.OwnerMask);
                 ownerMask &= part.OwnerMask;
                 perms &= part.Inventory.MaskEffectivePermissions();
             }

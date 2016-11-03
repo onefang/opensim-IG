@@ -41,10 +41,10 @@ using OpenSim.Region.OptionalModules.World.NPC;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.ScriptEngine.Shared;
 using OpenSim.Region.ScriptEngine.Shared.Api;
+using OpenSim.Region.ScriptEngine.Shared.Instance;
 using OpenSim.Region.ScriptEngine.Shared.ScriptBase;
 using OpenSim.Services.Interfaces;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.ScriptEngine.Shared.Tests
 {
@@ -92,7 +92,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Tests
             // FIXME: This should really be a script item (with accompanying script)
             TaskInventoryItem grp1Item
                 = TaskInventoryHelpers.AddNotecard(
-                    m_scene, grp1.RootPart, "ncItem", TestHelpers.ParseTail(0x800), TestHelpers.ParseTail(0x900));
+                    m_scene.AssetService, grp1.RootPart, "ncItem", TestHelpers.ParseTail(0x800), TestHelpers.ParseTail(0x900), "Hello World!");
             grp1Item.PermsMask |= ScriptBaseClass.PERMISSION_CHANGE_LINKS;
 
             SceneObjectGroup grp2 = SceneHelpers.CreateSceneObject(2, ownerId, "grp2-", 0x20);
@@ -126,7 +126,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Tests
             // FIXME: This should really be a script item (with accompanying script)
             TaskInventoryItem grp1Item
                 = TaskInventoryHelpers.AddNotecard(
-                    m_scene, grp1.RootPart, "ncItem", TestHelpers.ParseTail(0x800), TestHelpers.ParseTail(0x900));
+                    m_scene.AssetService, grp1.RootPart, "ncItem", TestHelpers.ParseTail(0x800), TestHelpers.ParseTail(0x900), "Hello World!");
             
             grp1Item.PermsMask |= ScriptBaseClass.PERMISSION_CHANGE_LINKS;
 
@@ -139,6 +139,48 @@ namespace OpenSim.Region.ScriptEngine.Shared.Tests
 
             SceneObjectGroup grp2 = m_scene.GetSceneObjectGroup("grp1-Part1");
             Assert.That(grp2, Is.Not.Null);
+        }
+
+        [Test]
+        public void TestllBreakAllLinks()
+        {
+            TestHelpers.InMethod();
+
+            UUID ownerId = TestHelpers.ParseTail(0x1);
+
+            SceneObjectGroup grp1 = SceneHelpers.CreateSceneObject(3, ownerId, "grp1-", 0x10);
+            grp1.AbsolutePosition = new Vector3(10, 10, 10);
+            m_scene.AddSceneObject(grp1);
+
+            // FIXME: This should really be a script item (with accompanying script)
+            TaskInventoryItem grp1Item
+                = TaskInventoryHelpers.AddNotecard(
+                    m_scene.AssetService, grp1.RootPart, "ncItem", TestHelpers.ParseTail(0x800), TestHelpers.ParseTail(0x900), "Hello World!");
+            
+            grp1Item.PermsMask |= ScriptBaseClass.PERMISSION_CHANGE_LINKS;
+
+            LSL_Api apiGrp1 = new LSL_Api();
+            apiGrp1.Initialize(m_engine, grp1.RootPart, grp1Item);
+
+            apiGrp1.llBreakAllLinks();
+
+            {
+                SceneObjectGroup nowGrp = m_scene.GetSceneObjectGroup("grp1-Part1");
+                Assert.That(nowGrp, Is.Not.Null);
+                Assert.That(nowGrp.Parts.Length, Is.EqualTo(1));
+            }
+
+            {
+                SceneObjectGroup nowGrp = m_scene.GetSceneObjectGroup("grp1-Part2");
+                Assert.That(nowGrp, Is.Not.Null);
+                Assert.That(nowGrp.Parts.Length, Is.EqualTo(1));
+            }
+
+            {
+                SceneObjectGroup nowGrp = m_scene.GetSceneObjectGroup("grp1-Part3");
+                Assert.That(nowGrp, Is.Not.Null);
+                Assert.That(nowGrp.Parts.Length, Is.EqualTo(1));
+            }
         }
     }
 }

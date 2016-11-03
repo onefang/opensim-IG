@@ -26,6 +26,7 @@
  */
 
 using System;
+using System.Collections.Generic;
 using OpenSim.Framework;
 using OpenMetaverse;
 
@@ -33,6 +34,20 @@ using GridRegion = OpenSim.Services.Interfaces.GridRegion;
 
 namespace OpenSim.Services.Interfaces
 {
+    public class EntityTransferContext
+    {
+        public EntityTransferContext()
+        {
+            InboundVersion = VersionInfo.SimulationServiceVersionAcceptedMax;
+            OutboundVersion = VersionInfo.SimulationServiceVersionSupportedMax;
+            VariableWearablesSupported = false;
+        }
+
+        public float InboundVersion { get; set; }
+        public float OutboundVersion { get; set; }
+        public bool VariableWearablesSupported { get; set; }
+    }
+
     public interface ISimulationService
     {
         /// <summary>
@@ -53,11 +68,13 @@ namespace OpenSim.Services.Interfaces
         /// <summary>
         /// Ask the simulator hosting the destination to create an agent on that region.
         /// </summary>
+        /// <param name="source">The region that the user is coming from. Will be null if the user
+        /// logged-in directly, or arrived from a simulator that doesn't send this parameter.</param>
         /// <param name="destination"></param>
         /// <param name="aCircuit"></param>
         /// <param name="flags"></param>
         /// <param name="reason">Reason message in the event of a failure.</param>        
-        bool CreateAgent(GridRegion destination, AgentCircuitData aCircuit, uint flags, out string reason);
+        bool CreateAgent(GridRegion source, GridRegion destination, AgentCircuitData aCircuit, uint flags, out string reason);
 
         /// <summary>
         /// Full child agent update.
@@ -75,9 +92,21 @@ namespace OpenSim.Services.Interfaces
         /// <returns></returns>
         bool UpdateAgent(GridRegion destination, AgentPosition data);
 
-        bool RetrieveAgent(GridRegion destination, UUID id, out IAgentData agent);
-
-        bool QueryAccess(GridRegion destination, UUID id, Vector3 position, out string version, out string reason);
+        /// <summary>
+        /// Returns whether a propspective user is allowed to visit the region.
+        /// </summary>
+        /// <param name="destination">Desired destination</param>
+        /// <param name="agentID">The visitor's User ID</param>
+        /// <param name="agentHomeURI">The visitor's Home URI. Will be missing (null) in older OpenSims.</param>
+        /// <param name="viaTeleport">True: via teleport; False: via cross (walking)</param>
+        /// <param name="position">Position in the region</param>
+        /// <param name="sversion">
+        /// Version that the requesting simulator is runing.  If null then no version check is carried out.
+        /// </param>
+        /// <param name="version">Version that the target simulator is running</param>
+        /// <param name="reason">[out] Optional error message</param>
+        /// <returns>True: ok; False: not allowed</returns>
+        bool QueryAccess(GridRegion destination, UUID agentID, string agentHomeURI, bool viaTeleport, Vector3 position, List<UUID> features, EntityTransferContext ctx, out string reason);
 
         /// <summary>
         /// Message from receiving region to departing region, telling it got contacted by the client.
@@ -95,7 +124,7 @@ namespace OpenSim.Services.Interfaces
         /// <param name="regionHandle"></param>
         /// <param name="id"></param>
         /// <returns></returns>
-        bool CloseAgent(GridRegion destination, UUID id);
+        bool CloseAgent(GridRegion destination, UUID id, string auth_token);
 
         #endregion Agents
 

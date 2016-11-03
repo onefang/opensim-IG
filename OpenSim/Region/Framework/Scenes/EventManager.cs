@@ -144,7 +144,7 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered when a new presence is added to the scene
         /// </summary>
         /// <remarks>
-        /// Triggered in <see cref="OpenSim.Region.Framework.Scenes.Scene.AddNewClient"/> which is used by both
+        /// Triggered in <see cref="OpenSim.Region.Framework.Scenes.Scene.AddNewAgent"/> which is used by both
         /// <see cref="OpenSim.Framework.PresenceType.User">users</see> and <see cref="OpenSim.Framework.PresenceType.Npc">NPCs</see>
         /// </remarks>
         public event OnNewPresenceDelegate OnNewPresence;
@@ -155,7 +155,7 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered when a presence is removed from the scene
         /// </summary>
         /// <remarks>
-        /// Triggered in <see cref="OpenSim.Region.Framework.Scenes.Scene.AddNewClient"/> which is used by both
+        /// Triggered in <see cref="OpenSim.Region.Framework.Scenes.Scene.AddNewAgent"/> which is used by both
         /// <see cref="OpenSim.Framework.PresenceType.User">users</see> and <see cref="OpenSim.Framework.PresenceType.Npc">NPCs</see>
         /// 
         /// Triggered under per-agent lock.  So if you want to perform any long-running operations, please
@@ -339,6 +339,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// in <see cref="Scene.SetScriptRunning"/>
         /// via <see cref="OpenSim.Framework.IClientAPI.OnSetScriptRunning"/>,
         /// via <see cref="OpenSim.Region.ClientStack.LindenUDP.HandleSetScriptRunning"/>
+        /// XXX: This is only triggered when it is the client that starts the script, not in other situations where
+        /// a script is started, unlike OnStopScript!
         /// </remarks>
         public event StartScript OnStartScript;
 
@@ -352,6 +354,7 @@ namespace OpenSim.Region.Framework.Scenes
         /// in <see cref="SceneObjectPartInventory.CreateScriptInstance"/>,
         /// <see cref="SceneObjectPartInventory.StopScriptInstance"/>,
         /// <see cref="Scene.SetScriptRunning"/>
+        /// XXX: This is triggered when a sciprt is stopped for any reason, unlike OnStartScript!
         /// </remarks>
         public event StopScript OnStopScript;
 
@@ -426,6 +429,9 @@ namespace OpenSim.Region.Framework.Scenes
 
         public delegate void IncomingInstantMessage(GridInstantMessage message);
         public event IncomingInstantMessage OnIncomingInstantMessage;
+
+        public delegate void CrossAgentToNewRegion(ScenePresence sp, bool isFlying, GridRegion newRegion);
+        public event CrossAgentToNewRegion OnCrossAgentToNewRegion;
 
         public event IncomingInstantMessage OnUnhandledInstantMessage;
 
@@ -546,6 +552,20 @@ namespace OpenSim.Region.Framework.Scenes
         /// </remarks>
         public event ScriptControlEvent OnScriptControlEvent;
 
+        public delegate void ScriptMovingStartEvent(uint localID);
+
+        /// <summary>
+        /// TODO: Should be triggered when a physics object starts moving.
+        /// </summary>
+        public event ScriptMovingStartEvent OnScriptMovingStartEvent;
+   
+        public delegate void ScriptMovingEndEvent(uint localID);
+
+        /// <summary>
+        /// TODO: Should be triggered when a physics object stops moving.
+        /// </summary>
+        public event ScriptMovingEndEvent OnScriptMovingEndEvent;
+
         public delegate void ScriptAtTargetEvent(uint localID, uint handle, Vector3 targetpos, Vector3 atpos);
 
         /// <summary>
@@ -612,8 +632,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered by <see cref="TriggerScriptCollidingStart"/>
         /// in <see cref="SceneObjectPart.SendCollisionEvent"/>
         /// via <see cref="SceneObjectPart.PhysicsCollision"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.OnCollisionUpdate"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.SendCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.OnCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.SendCollisionUpdate"/>
         /// </remarks>
         public event ScriptColliding OnScriptColliderStart;
 
@@ -626,8 +646,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered by <see cref="TriggerScriptColliding"/>
         /// in <see cref="SceneObjectPart.SendCollisionEvent"/>
         /// via <see cref="SceneObjectPart.PhysicsCollision"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.OnCollisionUpdate"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.SendCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.OnCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.SendCollisionUpdate"/>
         /// </remarks>
         public event ScriptColliding OnScriptColliding;
 
@@ -639,8 +659,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered by <see cref="TriggerScriptCollidingEnd"/>
         /// in <see cref="SceneObjectPart.SendCollisionEvent"/>
         /// via <see cref="SceneObjectPart.PhysicsCollision"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.OnCollisionUpdate"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.SendCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.OnCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.SendCollisionUpdate"/>
         /// </remarks>
         public event ScriptColliding OnScriptCollidingEnd;
 
@@ -652,8 +672,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered by <see cref="TriggerScriptLandCollidingStart"/>
         /// in <see cref="SceneObjectPart.SendLandCollisionEvent"/>
         /// via <see cref="SceneObjectPart.PhysicsCollision"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.OnCollisionUpdate"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.SendCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.OnCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.SendCollisionUpdate"/>
         /// </remarks>
         public event ScriptColliding OnScriptLandColliderStart;
 
@@ -665,8 +685,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered by <see cref="TriggerScriptLandColliding"/>
         /// in <see cref="SceneObjectPart.SendLandCollisionEvent"/>
         /// via <see cref="SceneObjectPart.PhysicsCollision"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.OnCollisionUpdate"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.SendCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.OnCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.SendCollisionUpdate"/>
         /// </remarks>
         public event ScriptColliding OnScriptLandColliding;
 
@@ -678,8 +698,8 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered by <see cref="TriggerScriptLandCollidingEnd"/>
         /// in <see cref="SceneObjectPart.SendLandCollisionEvent"/>
         /// via <see cref="SceneObjectPart.PhysicsCollision"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.OnCollisionUpdate"/>
-        /// via <see cref="OpenSim.Region.Physics.Manager.PhysicsActor.SendCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.OnCollisionUpdate"/>
+        /// via <see cref="OpenSim.Region.PhysicsModule.SharedBase.PhysicsActor.SendCollisionUpdate"/>
         /// </remarks>
         public event ScriptColliding OnScriptLandColliderEnd;
 
@@ -725,7 +745,7 @@ namespace OpenSim.Region.Framework.Scenes
         public event OnIncomingSceneObjectDelegate OnIncomingSceneObject;
         public delegate void OnIncomingSceneObjectDelegate(SceneObjectGroup so);
 
-        public delegate void NewInventoryItemUploadComplete(UUID avatarID, UUID assetID, string name, int userlevel);
+        public delegate void NewInventoryItemUploadComplete(UUID avatarID, AssetType type, UUID assetID, string name, int userlevel);
 
         public event NewInventoryItemUploadComplete OnNewInventoryItemUploadComplete;
 
@@ -751,7 +771,7 @@ namespace OpenSim.Region.Framework.Scenes
         public event ScriptTimerEvent OnScriptTimerEvent;
          */
 
-        public delegate void EstateToolsSunUpdate(ulong regionHandle, bool FixedTime, bool EstateSun, float LindenHour);
+        public delegate void EstateToolsSunUpdate(ulong regionHandle);
         public delegate void GetScriptRunning(IClientAPI controllingClient, UUID objectID, UUID itemID);
 
         public event EstateToolsSunUpdate OnEstateToolsSunUpdate;
@@ -766,12 +786,20 @@ namespace OpenSim.Region.Framework.Scenes
         /// <see cref="Scene.doObjectDuplicateOnRay"/>
         /// </remarks>
         public event Action<SceneObjectGroup> OnObjectAddedToScene;
-
+        
         /// <summary>
-        /// Delegate for <see cref="OnObjectBeingRemovedFromScene"/>
+        ///  When a client sends a derez request for an object inworld
+        ///  but before the object is deleted
         /// </summary>
-        /// <param name="obj">The object being removed from the scene</param>
-        public delegate void ObjectBeingRemovedFromScene(SceneObjectGroup obj);
+        public event DeRezRequested OnDeRezRequested;
+        /// <summary>
+        /// Triggered when a client sends a derez request for an object inworld
+        /// </summary>
+        /// <param name="remoteClient">The client question (it can be null)</param>
+        /// <param name="obj">The object in question</param>
+        /// <param name="action">The exact derez action</param>
+        /// <returns>Flag indicating whether the object should be deleted from the scene or not</returns>
+        public delegate bool DeRezRequested(IClientAPI remoteClient, List<SceneObjectGroup> objs, DeRezAction action);
 
         /// <summary>
         /// Triggered when an object is removed from the scene.
@@ -781,6 +809,24 @@ namespace OpenSim.Region.Framework.Scenes
         /// in <see cref="Scene.DeleteSceneObject"/>
         /// </remarks>
         public event ObjectBeingRemovedFromScene OnObjectBeingRemovedFromScene;
+        /// <summary>
+        /// Delegate for <see cref="OnObjectBeingRemovedFromScene"/>
+        /// </summary>
+        /// <param name="obj">The object being removed from the scene</param>
+        public delegate void ObjectBeingRemovedFromScene(SceneObjectGroup obj);
+
+        /// <summary>
+        /// Triggered when an object is placed into the physical scene (PhysicsActor created).
+        /// </summary>
+        public event Action<SceneObjectPart> OnObjectAddedToPhysicalScene;
+        /// <summary>
+        /// Triggered when an object is removed from the physical scene (PhysicsActor destroyed).
+        /// </summary>
+        /// <remarks>
+        /// Note: this is triggered just before the PhysicsActor is removed from the
+        /// physics engine so the receiver can do any necessary cleanup before its destruction.
+        /// </remarks>
+        public event Action<SceneObjectPart> OnObjectRemovedFromPhysicalScene;
 
         public delegate void NoticeNoLandDataFromStorage();
         public event NoticeNoLandDataFromStorage OnNoticeNoLandDataFromStorage;
@@ -939,6 +985,8 @@ namespace OpenSim.Region.Framework.Scenes
         public delegate void RegionStarted(Scene scene);
         public event RegionStarted OnRegionStarted;
 
+        public delegate void RegionHeartbeatStart(Scene scene);
+        public event RegionHeartbeatStart OnRegionHeartbeatStart;
         public delegate void RegionHeartbeatEnd(Scene scene);
         public event RegionHeartbeatEnd OnRegionHeartbeatEnd;
 
@@ -988,6 +1036,16 @@ namespace OpenSim.Region.Framework.Scenes
         /// via <see cref="OpenSim.Region.CoreModules.Framework.EntityTransfer.EntityTransferModule.DoTeleport"/>
         /// </remarks>
         public event TeleportFail OnTeleportFail;
+
+//        public delegate void GatherUuids(SceneObjectPart sop, IDictionary<UUID, AssetType> assetUuids);
+//
+//        /// <summary>
+//        /// Triggered when UUIDs referenced by a scene object are being gathered for archiving, hg transfer, etc.
+//        /// </summary>
+//        /// <remarks>
+//        /// The listener should add references to the IDictionary<UUID, AssetType> as appropriate.
+//        /// </remarks>
+//        public event GatherUuids OnGatherUuids;
 
         public class MoneyTransferArgs : EventArgs
         {
@@ -1060,7 +1118,7 @@ namespace OpenSim.Region.Framework.Scenes
         /// Triggered in <see cref="OpenSim.Region.Framework.Scenes.Scene.ProcessMoneyTransferRequest"/>
         /// via <see cref="OpenSim.Region.Framework.Scenes.Scene.SubscribeToClientGridEvents"/>
         /// via <see cref="OpenSim.Region.Framework.Scenes.Scene.SubscribeToClientEvents"/>
-        /// via <see cref="OpenSim.Region.Framework.Scenes.Scene.AddNewClient"/>
+        /// via <see cref="OpenSim.Region.Framework.Scenes.Scene.AddNewAgent"/>
         /// </remarks>
         public event MoneyTransferEvent OnMoneyTransfer;
 
@@ -1476,8 +1534,33 @@ namespace OpenSim.Region.Framework.Scenes
                     }
                 }
             }
-        }        
-        
+        }
+
+        public bool TriggerDeRezRequested(IClientAPI client, List<SceneObjectGroup> objs, DeRezAction action)
+        {
+            bool canDeRez = true;
+
+            DeRezRequested handlerDeRezRequested = OnDeRezRequested;
+            if (handlerDeRezRequested != null)
+            {
+                foreach (DeRezRequested d in handlerDeRezRequested.GetInvocationList())
+                {
+                    try
+                    {
+                        canDeRez &= d(client, objs, action);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.ErrorFormat(
+                            "[EVENT MANAGER]: Delegate for TriggerDeRezRequested failed - continuing.  {0} {1}",
+                            e.Message, e.StackTrace);
+                    }
+                }
+            }
+
+            return canDeRez;
+        }
+
         public void TriggerObjectBeingRemovedFromScene(SceneObjectGroup obj)
         {
             ObjectBeingRemovedFromScene handlerObjectBeingRemovedFromScene = OnObjectBeingRemovedFromScene;
@@ -1493,6 +1576,48 @@ namespace OpenSim.Region.Framework.Scenes
                     {
                         m_log.ErrorFormat(
                             "[EVENT MANAGER]: Delegate for TriggerObjectBeingRemovedFromScene failed - continuing.  {0} {1}", 
+                            e.Message, e.StackTrace);
+                    }
+                }
+            }
+        }
+
+        public void TriggerObjectAddedToPhysicalScene(SceneObjectPart obj)
+        {
+            Action<SceneObjectPart> handler = OnObjectAddedToPhysicalScene;
+            if (handler != null)
+            {
+                foreach (Action<SceneObjectPart> d in handler.GetInvocationList())
+                {
+                    try
+                    {
+                        d(obj);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.ErrorFormat(
+                            "[EVENT MANAGER]: Delegate for TriggerObjectAddedToPhysicalScene failed - continuing.  {0} {1}", 
+                            e.Message, e.StackTrace);
+                    }
+                }
+            }
+        }
+
+        public void TriggerObjectRemovedFromPhysicalScene(SceneObjectPart obj)
+        {
+            Action<SceneObjectPart> handler = OnObjectRemovedFromPhysicalScene;
+            if (handler != null)
+            {
+                foreach (Action<SceneObjectPart> d in handler.GetInvocationList())
+                {
+                    try
+                    {
+                        d(obj);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.ErrorFormat(
+                            "[EVENT MANAGER]: Delegate for TriggerObjectRemovedFromPhysicalScene failed - continuing.  {0} {1}", 
                             e.Message, e.StackTrace);
                     }
                 }
@@ -1876,6 +2001,27 @@ namespace OpenSim.Region.Framework.Scenes
             }
         }
 
+        public void TriggerCrossAgentToNewRegion(ScenePresence agent, bool isFlying, GridRegion newRegion)
+        {
+            CrossAgentToNewRegion handlerCrossAgentToNewRegion = OnCrossAgentToNewRegion;
+            if (handlerCrossAgentToNewRegion != null)
+            {
+                foreach (CrossAgentToNewRegion d in handlerCrossAgentToNewRegion.GetInvocationList())
+                {
+                    try
+                    {
+                        d(agent, isFlying, newRegion);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.ErrorFormat(
+                            "[EVENT MANAGER]: Delegate for TriggerCrossAgentToNewRegion failed - continuing.  {0} {1}",
+                            e.Message, e.StackTrace);
+                    }
+                }
+            }
+        }
+
         public void TriggerIncomingInstantMessage(GridInstantMessage message)
         {
             IncomingInstantMessage handlerIncomingInstantMessage = OnIncomingInstantMessage;
@@ -2062,7 +2208,7 @@ namespace OpenSim.Region.Framework.Scenes
             }
         }
 
-        public void TriggerOnNewInventoryItemUploadComplete(UUID agentID, UUID AssetID, String AssetName, int userlevel)
+        public void TriggerOnNewInventoryItemUploadComplete(UUID agentID, AssetType type, UUID AssetID, String AssetName, int userlevel)
         {
             NewInventoryItemUploadComplete handlerNewInventoryItemUpdateComplete = OnNewInventoryItemUploadComplete;
             if (handlerNewInventoryItemUpdateComplete != null)
@@ -2071,7 +2217,7 @@ namespace OpenSim.Region.Framework.Scenes
                 {
                     try
                     {
-                        d(agentID, AssetID, AssetName, userlevel);
+                        d(agentID, type, AssetID, AssetName, userlevel);
                     }
                     catch (Exception e)
                     {
@@ -2203,6 +2349,48 @@ namespace OpenSim.Region.Framework.Scenes
                     {
                         m_log.ErrorFormat(
                             "[EVENT MANAGER]: Delegate for TriggerNotAtRotTargetEvent failed - continuing.  {0} {1}", 
+                            e.Message, e.StackTrace);
+                    }
+                }
+            }
+        }
+
+        public void TriggerMovingStartEvent(uint localID)
+        {
+            ScriptMovingStartEvent handlerScriptMovingStartEvent = OnScriptMovingStartEvent;
+            if (handlerScriptMovingStartEvent != null)
+            {
+                foreach (ScriptMovingStartEvent d in handlerScriptMovingStartEvent.GetInvocationList())
+                {
+                    try
+                    {
+                        d(localID);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.ErrorFormat(
+                            "[EVENT MANAGER]: Delegate for TriggerMovingStartEvent failed - continuing.  {0} {1}",
+                            e.Message, e.StackTrace);
+                    }
+                }
+            }
+        }
+
+        public void TriggerMovingEndEvent(uint localID)
+        {
+            ScriptMovingEndEvent handlerScriptMovingEndEvent = OnScriptMovingEndEvent;
+            if (handlerScriptMovingEndEvent != null)
+            {
+                foreach (ScriptMovingEndEvent d in handlerScriptMovingEndEvent.GetInvocationList())
+                {
+                    try
+                    {
+                        d(localID);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.ErrorFormat(
+                            "[EVENT MANAGER]: Delegate for TriggerMovingEndEvent failed - continuing.  {0} {1}",
                             e.Message, e.StackTrace);
                     }
                 }
@@ -2507,13 +2695,10 @@ namespace OpenSim.Region.Framework.Scenes
         }
 
         /// <summary>
-        /// Updates the system as to how the position of the sun should be handled.
+        /// Called when the sun's position parameters have changed in the Region and/or Estate
         /// </summary>
-        /// <param name="regionHandle"></param>
-        /// <param name="FixedTime">True if the Sun Position is fixed</param>
-        /// <param name="useEstateTime">True if the Estate Settings should be used instead of region</param>
-        /// <param name="FixedSunHour">The hour 0.0 <= FixedSunHour <= 24.0 at which the sun is fixed at. Sun Hour 0 is sun-rise, when Day/Night ratio is 1:1</param>
-        public void TriggerEstateToolsSunUpdate(ulong regionHandle, bool FixedTime, bool useEstateTime, float FixedSunHour)
+        /// <param name="regionHandle">The region that changed</param>
+        public void TriggerEstateToolsSunUpdate(ulong regionHandle)
         {
             EstateToolsSunUpdate handlerEstateToolsSunUpdate = OnEstateToolsSunUpdate;
             if (handlerEstateToolsSunUpdate != null)
@@ -2522,7 +2707,7 @@ namespace OpenSim.Region.Framework.Scenes
                 {
                     try
                     {
-                        d(regionHandle, FixedTime, useEstateTime, FixedSunHour);
+                        d(regionHandle);
                     }
                     catch (Exception e)
                     {
@@ -2957,6 +3142,27 @@ namespace OpenSim.Region.Framework.Scenes
             }
         }
 
+        public void TriggerRegionHeartbeatStart(Scene scene)
+        {
+            RegionHeartbeatStart handler = OnRegionHeartbeatStart;
+
+            if (handler != null)
+            {
+                foreach (RegionHeartbeatStart d in handler.GetInvocationList())
+                {
+                    try
+                    {
+                        d(scene);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.ErrorFormat("[EVENT MANAGER]: Delegate for OnRegionHeartbeatStart failed - continuing {0} - {1}",
+                            e.Message, e.StackTrace);
+                    }
+                }
+            }
+        }
+
         public void TriggerRegionHeartbeatEnd(Scene scene)
         {
             RegionHeartbeatEnd handler = OnRegionHeartbeatEnd;
@@ -3103,5 +3309,26 @@ namespace OpenSim.Region.Framework.Scenes
                 }
             }
         }
+
+//        public void TriggerGatherUuids(SceneObjectPart sop, IDictionary<UUID, AssetType> assetUuids)
+//        {
+//            GatherUuids handler = OnGatherUuids;
+//
+//            if (handler != null)
+//            {
+//                foreach (GatherUuids d in handler.GetInvocationList())
+//                {
+//                    try
+//                    {
+//                        d(sop, assetUuids);
+//                    }
+//                    catch (Exception e)
+//                    {
+//                        m_log.ErrorFormat("[EVENT MANAGER]: Delegate for TriggerUuidGather failed - continuing {0} - {1}",
+//                            e.Message, e.StackTrace);
+//                    }
+//                }
+//            }
+//        }
     }
 }

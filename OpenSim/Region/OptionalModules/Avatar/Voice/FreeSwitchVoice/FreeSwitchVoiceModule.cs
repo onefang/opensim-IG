@@ -65,7 +65,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.FreeSwitchVoice
         // Capability string prefixes
         private static readonly string m_parcelVoiceInfoRequestPath = "0207/";
         private static readonly string m_provisionVoiceAccountRequestPath = "0208/";
-        private static readonly string m_chatSessionRequestPath = "0209/";
+        //private static readonly string m_chatSessionRequestPath = "0209/";
 
         // Control info
         private static bool   m_Enabled  = false;
@@ -326,15 +326,15 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.FreeSwitchVoice
                     "ParcelVoiceInfoRequest",
                     agentID.ToString()));
 
-            caps.RegisterHandler(
-                "ChatSessionRequest",
-                new RestStreamHandler(
-                    "POST",
-                    capsBase + m_chatSessionRequestPath,
-                            (request, path, param, httpRequest, httpResponse)
-                                => ChatSessionRequest(scene, request, path, param, agentID, caps),
-                    "ChatSessionRequest",
-                    agentID.ToString()));
+            //caps.RegisterHandler(
+            //    "ChatSessionRequest",
+            //    new RestStreamHandler(
+            //        "POST",
+            //        capsBase + m_chatSessionRequestPath,
+            //                (request, path, param, httpRequest, httpResponse)
+            //                    => ChatSessionRequest(scene, request, path, param, agentID, caps),
+            //        "ChatSessionRequest",
+            //        agentID.ToString()));
         }
 
         /// <summary>
@@ -551,13 +551,20 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.FreeSwitchVoice
                 reqStream.Close();
             }
 
-            HttpWebResponse fwdrsp = (HttpWebResponse)forwardreq.GetResponse();
-            Encoding encoding = Util.UTF8;
-            StreamReader fwdresponsestream = new StreamReader(fwdrsp.GetResponseStream(), encoding);
-            fwdresponsestr = fwdresponsestream.ReadToEnd();
-            fwdresponsecontenttype = fwdrsp.ContentType;
-            fwdresponsecode = (int)fwdrsp.StatusCode;
-            fwdresponsestream.Close();
+            using (HttpWebResponse fwdrsp = (HttpWebResponse)forwardreq.GetResponse())
+            {
+                Encoding encoding = Util.UTF8;
+
+                using (Stream s = fwdrsp.GetResponseStream())
+                {
+                    using (StreamReader fwdresponsestream = new StreamReader(s))
+                    {
+                        fwdresponsestr = fwdresponsestream.ReadToEnd();
+                        fwdresponsecontenttype = fwdrsp.ContentType;
+                        fwdresponsecode = (int)fwdrsp.StatusCode;
+                    }
+                }
+            }
 
             response["content_type"] = fwdresponsecontenttype;
             response["str_response_string"] = fwdresponsestr;

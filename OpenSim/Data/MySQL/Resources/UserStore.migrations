@@ -21,7 +21,7 @@ CREATE TABLE `agents` (
   PRIMARY KEY  (`UUID`),
   UNIQUE KEY `session` (`sessionID`),
   UNIQUE KEY `ssession` (`secureSessionID`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- Create schema avatar_appearance
 --
@@ -59,7 +59,7 @@ CREATE TABLE `avatarappearance` (
   Skirt_Item char(36) NOT NULL,
   Skirt_Asset char(36) NOT NULL,
   PRIMARY KEY  (`Owner`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 SET FOREIGN_KEY_CHECKS=0;
 -- ----------------------------
@@ -71,7 +71,7 @@ CREATE TABLE `userfriends` (
    `friendPerms` INT NOT NULL,
    `datetimestamp` INT NOT NULL,
 	 UNIQUE KEY  (`ownerID`, `friendID`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 -- ----------------------------
 -- Table structure for users
 -- ----------------------------
@@ -101,7 +101,7 @@ CREATE TABLE `users` (
   `webLoginKey` varchar(36) default NULL,
   PRIMARY KEY  (`UUID`),
   UNIQUE KEY `usernames` (`username`,`lastname`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- ----------------------------
 -- Records 
@@ -138,7 +138,7 @@ COMMIT;
 
 BEGIN;
 
-CREATE TABLE `avatarattachments` (`UUID` char(36) NOT NULL, `attachpoint` int(11) NOT NULL, `item` char(36) NOT NULL, `asset` char(36) NOT NULL) ENGINE=MyISAM;
+CREATE TABLE `avatarattachments` (`UUID` char(36) NOT NULL, `attachpoint` int(11) NOT NULL, `item` char(36) NOT NULL, `asset` char(36) NOT NULL) ENGINE=InnoDB;
 
 COMMIT;
 

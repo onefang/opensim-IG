@@ -31,7 +31,6 @@ using System.Threading;
 using OpenMetaverse;
 using OpenMetaverse.Packets;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
 using OpenSim.Services.Interfaces;
 
 namespace OpenSim.Region.Framework.Scenes
@@ -145,6 +144,21 @@ namespace OpenSim.Region.Framework.Scenes
         }
 
         /// <summary>
+        ///
+        /// </summary>
+        /// <param name="message"></param>
+        /// <param name="type"></param>
+        /// <param name="channel"></param>
+        /// <param name="fromPos"></param>
+        /// <param name="fromName"></param>
+        /// <param name="fromAgentID"></param>
+        /// <param name="targetID"></param>
+        public void SimChatToAgent(UUID targetID, byte[] message, int channel, Vector3 fromPos, string fromName, UUID fromID, bool fromAgent)
+        {
+            SimChat(message, ChatTypeEnum.Region, channel, fromPos, fromName, fromID, targetID, fromAgent, false);
+        }
+
+        /// <summary>
         /// Invoked when the client requests a prim.
         /// </summary>
         /// <param name="primLocalID"></param>
@@ -244,25 +258,20 @@ namespace OpenSim.Region.Framework.Scenes
             if (part.ParentGroup.RootPart.LocalId != part.LocalId)
                 return;
 
-            bool isAttachment = false;
-            
             // This is wrong, wrong, wrong. Selection should not be
             // handled by group, but by prim. Legacy cruft.
             // TODO: Make selection flagging per prim!
             //
             part.ParentGroup.IsSelected = false;
             
-            if (part.ParentGroup.IsAttachment)
-                isAttachment = true;
-            else
-                part.ParentGroup.ScheduleGroupForFullUpdate();
+            part.ParentGroup.ScheduleGroupForFullUpdate();
 
             // If it's not an attachment, and we are allowed to move it,
             // then we might have done so. If we moved across a parcel
             // boundary, we will need to recount prims on the parcels.
             // For attachments, that makes no sense.
             //
-            if (!isAttachment)
+            if (!part.ParentGroup.IsAttachment)
             {
                 if (Permissions.CanEditObject(
                         part.UUID, remoteClient.AgentId) 
@@ -390,6 +399,7 @@ namespace OpenSim.Region.Framework.Scenes
         void ProcessViewerEffect(IClientAPI remoteClient, List<ViewerEffectEventHandlerArg> args)
         {
             // TODO: don't create new blocks if recycling an old packet
+            bool discardableEffects = true;
             ViewerEffectPacket.EffectBlock[] effectBlockArray = new ViewerEffectPacket.EffectBlock[args.Count];
             for (int i = 0; i < args.Count; i++)
             {
@@ -401,17 +411,34 @@ namespace OpenSim.Region.Framework.Scenes
                 effect.Type = args[i].Type;
                 effect.TypeData = args[i].TypeData;
                 effectBlockArray[i] = effect;
+
+                if ((EffectType)effect.Type != EffectType.LookAt && (EffectType)effect.Type != EffectType.Beam)
+                    discardableEffects = false;
+
+                //m_log.DebugFormat("[YYY]: VE {0} {1} {2}", effect.AgentID, effect.Duration, (EffectType)effect.Type);
             }
 
-            ForEachClient(
-                delegate(IClientAPI client)
+            ForEachScenePresence(sp =>
                 {
-                    if (client.AgentId != remoteClient.AgentId)
-                        client.SendViewerEffect(effectBlockArray);
-                }
-            );
+                    if (sp.ControllingClient.AgentId != remoteClient.AgentId)
+                    {
+                        if (!discardableEffects ||
+                            (discardableEffects && ShouldSendDiscardableEffect(remoteClient, sp)))
+                        {
+                            //m_log.DebugFormat("[YYY]: Sending to {0}", sp.UUID);
+                            sp.ControllingClient.SendViewerEffect(effectBlockArray);
+                        }
+                        //else
+                        //    m_log.DebugFormat("[YYY]: Not sending to {0}", sp.UUID);
+                    }
+                });
         }
-        
+
+        private bool ShouldSendDiscardableEffect(IClientAPI thisClient, ScenePresence other)
+        {
+            return Vector3.Distance(other.CameraPosition, thisClient.SceneAgent.AbsolutePosition) < 10;
+        }
+
         /// <summary>
         /// Tell the client about the various child items and folders contained in the requested folder.
         /// </summary>
@@ -459,7 +486,16 @@ namespace OpenSim.Region.Framework.Scenes
 
         void SendInventoryAsync(IClientAPI remoteClient, UUID folderID, UUID ownerID, bool fetchFolders, bool fetchItems, int sortOrder)
         {
-            SendInventoryUpdate(remoteClient, new InventoryFolderBase(folderID), fetchFolders, fetchItems);
+            try
+            {
+                SendInventoryUpdate(remoteClient, new InventoryFolderBase(folderID), fetchFolders, fetchItems);
+            }
+            catch (Exception e)
+            {
+                m_log.Error(
+                    string.Format(
+                        "[AGENT INVENTORY]: Error in SendInventoryAsync() for {0} with folder ID {1}.  Exception  ", e));
+            }
         }
 
         void SendInventoryComplete(IAsyncResult iar)

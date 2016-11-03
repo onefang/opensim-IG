@@ -69,6 +69,13 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
             get { return "HGAssetBroker"; }
         }
 
+        public HGAssetBroker() {}
+
+        public HGAssetBroker(IConfigSource config)
+        {
+            Initialise(config);
+        }
+
         public void Initialise(IConfigSource source)
         {
             IConfig moduleConfig = source.Configs["Modules"];
@@ -288,7 +295,7 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
 
             if (asset != null)
             {
-                Util.FireAndForget(delegate { handler(id, sender, asset); });
+                Util.FireAndForget(delegate { handler(id, sender, asset); }, null, "HGAssetBroker.GotFromCache");
                 return true;
             }
 
@@ -312,6 +319,23 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
             }
         }
 
+        public virtual bool[] AssetsExist(string[] ids)
+        {
+            int numHG = 0;
+            foreach (string id in ids)
+            {
+                if (IsHG(id))
+                    ++numHG;
+            }
+
+            if (numHG == 0)
+                return m_GridService.AssetsExist(ids);
+            else if (numHG == ids.Length)
+                return m_HGService.AssetsExist(ids);
+            else
+                throw new Exception("[HG ASSET CONNECTOR]: AssetsExist: all the assets must be either local or foreign");
+        }
+
         public string Store(AssetBase asset)
         {
             bool isHG = IsHG(asset.ID);
@@ -322,14 +346,14 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
                 // a copy of the local asset.
                 m_Cache.Cache(asset);
 
-            if (asset.Temporary || asset.Local)
+            if (asset.Local)
             {
                 if (m_Cache != null)
                     m_Cache.Cache(asset);
                 return asset.ID;
             }
 
-            string id = string.Empty;
+            string id;
             if (IsHG(asset.ID))
             {
                 if (m_AssetPerms.AllowedExport(asset.Type))
@@ -340,18 +364,15 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
             else
                 id = m_GridService.Store(asset);
 
-            if (id != String.Empty)
-            {
-                // Placing this here, so that this work with old asset servers that don't send any reply back
-                // SynchronousRestObjectRequester returns somethins that is not an empty string
-                if (id != null)
-                    asset.ID = id;
+            if (String.IsNullOrEmpty(id))
+                return string.Empty;
+            
+            asset.ID = id;
 
-                if (m_Cache != null)
-                    m_Cache.Cache(asset);
-            }
+            if (m_Cache != null)
+                m_Cache.Cache(asset);
+
             return id;
-
         }
 
         public bool UpdateContent(string id, byte[] data)

@@ -29,6 +29,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Threading;
 using log4net.Config;
 using Nini.Config;
 using NUnit.Framework;
@@ -38,7 +39,6 @@ using OpenSim.Framework;
 using OpenSim.Region.CoreModules.Agent.TextureSender;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.ClientStack.LindenUDP.Tests
 {
@@ -53,6 +53,9 @@ namespace OpenSim.Region.ClientStack.LindenUDP.Tests
         [TestFixtureSetUp]
         public void FixtureInit()
         {
+            // Don't allow tests to be bamboozled by asynchronous events.  Execute everything on the same thread.
+            Util.FireAndForgetMethod = FireAndForgetMethod.None;
+
             using (
                 Stream resource
                     = GetType().Assembly.GetManifestResourceStream(
@@ -72,9 +75,19 @@ namespace OpenSim.Region.ClientStack.LindenUDP.Tests
             }
         }
 
-        [SetUp]
-        public void SetUp()
+        [TestFixtureTearDown]
+        public void TearDown()
         {
+            // We must set this back afterwards, otherwise later tests will fail since they're expecting multiple
+            // threads.  Possibly, later tests should be rewritten not to worry about such things.
+            Util.FireAndForgetMethod = Util.DefaultFireAndForgetMethod;
+        }
+
+        [SetUp]
+        public override void SetUp()
+        {
+            base.SetUp();
+
             UUID userId = TestHelpers.ParseTail(0x3);
 
             J2KDecoderModule j2kdm = new J2KDecoderModule();

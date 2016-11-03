@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) Contributors, http://opensimulator.org/
  * See CONTRIBUTORS.TXT for a full list of copyright holders.
  *
@@ -42,19 +42,27 @@ using log4net;
 
 namespace OpenSim.Region.CoreModules.Avatar.Friends
 {
-    public class FriendsRequestHandler : BaseStreamHandler
+    public class FriendsRequestHandler : BaseStreamHandlerBasicDOSProtector
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
         private FriendsModule m_FriendsModule;
 
         public FriendsRequestHandler(FriendsModule fmodule)
-                : base("POST", "/friends")
+                : base("POST", "/friends", new BasicDosProtectorOptions()
+                                          {
+                                              AllowXForwardedFor = true,
+                                              ForgetTimeSpan = TimeSpan.FromMinutes(2),
+                                              MaxRequestsInTimeframe = 20,
+                                              ReportingName = "FRIENDSDOSPROTECTOR",
+                                              RequestTimeSpan = TimeSpan.FromSeconds(5),
+                                              ThrottledAction = BasicDOSProtector.ThrottleAction.DoThrottledMethod
+                                          })
         {
             m_FriendsModule = fmodule;
         }
 
-        public override byte[] Handle(
+        protected override byte[] ProcessRequest(
             string path, Stream requestData, IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
             StreamReader sr = new StreamReader(requestData);
@@ -193,7 +201,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Friends
             if (!UUID.TryParse(request["ToID"].ToString(), out toID))
                 return FailureResult();
 
-            if (m_FriendsModule.LocalFriendshipTerminated(toID))
+            if (m_FriendsModule.LocalFriendshipTerminated(fromID, toID))
                 return SuccessResult();
 
             return FailureResult();
@@ -281,18 +289,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Friends
 
             rootElement.AppendChild(result);
 
-            return DocToBytes(doc);
-        }
-
-        private byte[] DocToBytes(XmlDocument doc)
-        {
-            MemoryStream ms = new MemoryStream();
-            XmlTextWriter xw = new XmlTextWriter(ms, null);
-            xw.Formatting = Formatting.Indented;
-            doc.WriteTo(xw);
-            xw.Flush();
-
-            return ms.ToArray();
+            return Util.DocToBytes(doc);
         }
 
         #endregion

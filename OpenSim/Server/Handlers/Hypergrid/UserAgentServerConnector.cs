@@ -62,10 +62,15 @@ namespace OpenSim.Server.Handlers.Hypergrid
         private bool m_VerifyCallers = false;
 
         public UserAgentServerConnector(IConfigSource config, IHttpServer server) :
-                this(config, server, null)
+            this(config, server, (IFriendsSimConnector)null)
         {            
         }
 
+        public UserAgentServerConnector(IConfigSource config, IHttpServer server, string configName) :
+            this(config, server)
+        {
+        }
+        
         public UserAgentServerConnector(IConfigSource config, IHttpServer server, IFriendsSimConnector friendsConnector) :
                 base(config, server, String.Empty)
         {
@@ -94,8 +99,10 @@ namespace OpenSim.Server.Handlers.Hypergrid
             server.AddXmlRPCHandler("verify_client", VerifyClient, false);
             server.AddXmlRPCHandler("logout_agent", LogoutAgent, false);
 
+#pragma warning disable 0612
             server.AddXmlRPCHandler("status_notification", StatusNotification, false);
             server.AddXmlRPCHandler("get_online_friends", GetOnlineFriends, false);
+#pragma warning restore 0612
             server.AddXmlRPCHandler("get_user_info", GetUserInfo, false);
             server.AddXmlRPCHandler("get_server_urls", GetServerURLs, false);
 
@@ -103,7 +110,7 @@ namespace OpenSim.Server.Handlers.Hypergrid
             server.AddXmlRPCHandler("get_uui", GetUUI, false);
             server.AddXmlRPCHandler("get_uuid", GetUUID, false);
 
-            server.AddHTTPHandler("/homeagent/", new HomeAgentHandler(m_HomeUsersService, loginServerIP, proxy).Handler);
+            server.AddStreamHandler(new HomeAgentHandler(m_HomeUsersService, loginServerIP, proxy));
         }
 
         public XmlRpcResponse GetHomeRegion(XmlRpcRequest request, IPEndPoint remoteClient)
@@ -127,6 +134,8 @@ namespace OpenSim.Server.Handlers.Hypergrid
                 hash["uuid"] = regInfo.RegionID.ToString();
                 hash["x"] = regInfo.RegionLocX.ToString();
                 hash["y"] = regInfo.RegionLocY.ToString();
+                hash["size_x"] = regInfo.RegionSizeX.ToString();
+                hash["size_y"] = regInfo.RegionSizeY.ToString();
                 hash["region_name"] = regInfo.RegionName;
                 hash["hostname"] = regInfo.ExternalHostName;
                 hash["http_port"] = regInfo.HttpPort.ToString();
@@ -448,7 +457,6 @@ namespace OpenSim.Server.Handlers.Hypergrid
             XmlRpcResponse response = new XmlRpcResponse();
             response.Value = hash;
             return response;
-
         }
 
         /// <summary>
@@ -466,9 +474,7 @@ namespace OpenSim.Server.Handlers.Hypergrid
             //string portstr = (string)requestData["port"];
             if (requestData.ContainsKey("first") && requestData.ContainsKey("last"))
             {
-                UUID userID = UUID.Zero;
                 string first = (string)requestData["first"];
-
                 string last = (string)requestData["last"];
                 UUID uuid = m_HomeUsersService.GetUUID(first, last);
                 hash["UUID"] = uuid.ToString();
@@ -477,7 +483,6 @@ namespace OpenSim.Server.Handlers.Hypergrid
             XmlRpcResponse response = new XmlRpcResponse();
             response.Value = hash;
             return response;
-
         }
     }
 }

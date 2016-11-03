@@ -37,14 +37,12 @@ using OpenSim.Data;
 using OpenSim.Framework;
 using OpenSim.Framework.Serialization;
 using OpenSim.Framework.Serialization.External;
-using OpenSim.Framework.Communications;
 using OpenSim.Region.CoreModules.Avatar.Inventory.Archiver;
 using OpenSim.Region.CoreModules.Framework.InventoryAccess;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Scenes.Serialization;
 using OpenSim.Services.Interfaces;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.CoreModules.Framework.InventoryAccess.Tests
 {
@@ -109,8 +107,9 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess.Tests
             item1.AssetID = asset1.FullID;
             item1.ID = item1Id;
             InventoryFolderBase objsFolder 
-                = InventoryArchiveUtils.FindFolderByPath(m_scene.InventoryService, m_userId, "Objects")[0];
+                = InventoryArchiveUtils.FindFoldersByPath(m_scene.InventoryService, m_userId, "Objects")[0];
             item1.Folder = objsFolder.ID;
+            item1.Flags |= (uint)InventoryItemFlags.ObjectHasMultipleItems;
             m_scene.AddInventoryItem(item1);
             
             SceneObjectGroup so 
@@ -159,7 +158,7 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess.Tests
             item1.AssetID = asset1.FullID;
             item1.ID = item1Id;
             InventoryFolderBase objsFolder 
-                = InventoryArchiveUtils.FindFolderByPath(m_scene.InventoryService, m_userId, "Objects")[0];
+                = InventoryArchiveUtils.FindFoldersByPath(m_scene.InventoryService, m_userId, "Objects")[0];
             item1.Folder = objsFolder.ID;
             m_scene.AddInventoryItem(item1);
             

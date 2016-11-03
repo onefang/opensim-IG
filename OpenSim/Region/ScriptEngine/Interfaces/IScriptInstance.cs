@@ -28,9 +28,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
+using System.Diagnostics;
 using OpenMetaverse;
 using log4net;
 using OpenSim.Framework;
+using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.ScriptEngine.Shared;
 using OpenSim.Region.ScriptEngine.Interfaces;
 
@@ -49,8 +52,13 @@ namespace OpenSim.Region.ScriptEngine.Interfaces
     public interface IScriptWorkItem
     {
         bool Cancel();
-        void Abort();
-        bool Wait(TimeSpan t);
+        bool Abort();
+
+        /// <summary>
+        /// Wait for the work item to complete.
+        /// </summary>
+        /// <param name='t'>The number of milliseconds to wait.  Must be >= -1 (Timeout.Infinite).</param>
+        bool Wait(int t);
     }
 
     /// <summary>
@@ -86,9 +94,20 @@ namespace OpenSim.Region.ScriptEngine.Interfaces
         bool ShuttingDown { get; set; }
 
         /// <summary>
+        /// When stopping the script: should it remain stopped permanently (i.e., save !Running in its state)?
+        /// </summary>
+        bool StayStopped { get; set; }
+
+        /// <summary>
         /// Script state
         /// </summary>
         string State { get; set; }
+
+        /// <summary>
+        /// If true then the engine is responsible for persisted state.  If false then some other component may 
+        /// persist state (e.g. attachments persisting in assets).
+        /// </summary>
+        bool StatePersistedHere { get; }
 
         /// <summary>
         /// Time the script was last started
@@ -96,14 +115,14 @@ namespace OpenSim.Region.ScriptEngine.Interfaces
         DateTime TimeStarted { get; }
 
         /// <summary>
-        /// Tick the last measurement period was started.
+        /// Collects information about how long the script was executed.
         /// </summary>
-        long MeasurementPeriodTickStart { get; }
+        MetricsCollectorTime ExecutionTime { get; }
 
         /// <summary>
-        /// Ticks spent executing in the last measurement period.
+        /// Scene part in which this script instance is contained.
         /// </summary>
-        long MeasurementPeriodExecutionTime { get; }
+        SceneObjectPart Part { get; }
 
         IScriptEngine Engine { get; }
         UUID AppDomain { get; set; }
@@ -124,6 +143,12 @@ namespace OpenSim.Region.ScriptEngine.Interfaces
 
         uint LocalID { get; }
         UUID AssetID { get; }
+
+        /// <summary>
+        /// Inventory item containing the script used.
+        /// </summary>
+        TaskInventoryItem ScriptTask { get; }
+
         Queue EventQueue { get; }
 
         /// <summary>
@@ -138,6 +163,9 @@ namespace OpenSim.Region.ScriptEngine.Interfaces
 
         void ClearQueue();
         int StartParam { get; set; }
+
+        WaitHandle CoopWaitHandle { get; }
+        Stopwatch ExecutionTimer { get; }
 
         void RemoveState();
 
@@ -154,8 +182,9 @@ namespace OpenSim.Region.ScriptEngine.Interfaces
         /// <param name="timeout"></param>
         /// How many milliseconds we will wait for an existing script event to finish before
         /// forcibly aborting that event.
+        /// <param name="clearEventQueue">If true then the event queue is also cleared</param>
         /// <returns>true if the script was successfully stopped, false otherwise</returns>
-        bool Stop(int timeout);
+        bool Stop(int timeout, bool clearEventQueue = false);
 
         void SetState(string state);
 
@@ -204,7 +233,7 @@ namespace OpenSim.Region.ScriptEngine.Interfaces
         void SetVars(Dictionary<string, object> vars);
         DetectParams GetDetectParams(int idx);
         UUID GetDetectID(int idx);
-        void SaveState(string assembly);
+        void SaveState();
         void DestroyScriptInstance();
 
         IScriptApi GetApi(string name);

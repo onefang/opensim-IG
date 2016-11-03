@@ -32,6 +32,11 @@ namespace pCampBot.Interfaces
     public interface IBehaviour
     {
         /// <summary>
+        /// Abbreviated name of this behaviour. 
+        /// </summary>
+        string AbbreviatedName { get; }
+
+        /// <summary>
         /// Name of this behaviour.
         /// </summary>
         string Name { get; }
@@ -44,6 +49,22 @@ namespace pCampBot.Interfaces
         /// </remarks>
         /// <param name="bot"></param>
         void Initialize(Bot bot);
+
+        /// <summary>
+        /// Interrupt the behaviour.
+        /// </summary>
+        /// <remarks>
+        /// This should cause the current Action call() to terminate if this is active.
+        /// </remarks>
+        void Interrupt();
+
+        /// <summary>
+        /// Close down this behaviour.
+        /// </summary>
+        /// <remarks>
+        /// This is triggered if a behaviour is removed via explicit command and when a bot is disconnected
+        /// </remarks>
+        void Close();
 
         /// <summary>
         /// Action to take when this behaviour is invoked.

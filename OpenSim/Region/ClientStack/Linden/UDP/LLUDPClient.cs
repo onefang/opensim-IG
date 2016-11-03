@@ -31,6 +31,7 @@ using System.Net;
 using System.Threading;
 using log4net;
 using OpenSim.Framework;
+using OpenSim.Framework.Monitoring;
 using OpenMetaverse;
 using OpenMetaverse.Packets;
 
@@ -75,11 +76,40 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         /// or removed, this number must also change</summary>
         const int THROTTLE_CATEGORY_COUNT = 8;
 
+        /// <summary>
+        /// Controls whether information is logged about each outbound packet immediately before it is sent.  For debug purposes.
+        /// </summary>
+        /// <remarks>Any level above 0 will turn on logging.</remarks>
+        public int DebugDataOutLevel { get; set; }
+
+        /// <summary>
+        /// Controls whether information is logged about each outbound packet immediately before it is sent.  For debug purposes.
+        /// </summary>
+        /// <remarks>Any level above 0 will turn on logging.</remarks>
+        public int ThrottleDebugLevel 
+        { 
+            get
+            {
+                return m_throttleDebugLevel;
+            }
+
+            set
+            {
+                m_throttleDebugLevel = value;
+                m_throttleClient.DebugLevel = m_throttleDebugLevel;
+                foreach (TokenBucket tb in m_throttleCategories)
+                    tb.DebugLevel = m_throttleDebugLevel;
+            }
+        }
+        private int m_throttleDebugLevel;
+
         /// <summary>Fired when updated networking stats are produced for this client</summary>
         public event PacketStats OnPacketStats;
         /// <summary>Fired when the queue for a packet category is empty. This event can be
         /// hooked to put more data on the empty queue</summary>
         public event QueueEmpty OnQueueEmpty;
+
+        public event Func<ThrottleOutPacketTypeFlags, bool> HasUpdates;
 
         /// <summary>AgentID for this client</summary>
         public readonly UUID AgentID;
@@ -89,8 +119,15 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         public readonly uint CircuitCode;
         /// <summary>Sequence numbers of packets we've received (for duplicate checking)</summary>
         public readonly IncomingPacketHistoryCollection PacketArchive = new IncomingPacketHistoryCollection(200);
+
+        /// <summary>
+        /// If true then we take action in response to unacked reliably sent packets such as resending the packet.
+        /// </summary>
+        public bool ProcessUnackedSends { get; set; }
+
         /// <summary>Packets we have sent that need to be ACKed by the client</summary>
         public readonly UnackedPacketCollection NeedAcks = new UnackedPacketCollection();
+
         /// <summary>ACKs that are queued up, waiting to be sent to the client</summary>
         public readonly OpenSim.Framework.LocklessQueue<uint> PendingAcks = new OpenSim.Framework.LocklessQueue<uint>();
 
@@ -141,8 +178,6 @@ namespace OpenSim.Region.ClientStack.LindenUDP
             get { return m_throttleClient; }
         }
 
-        /// <summary>Throttle bucket for this agent's connection</summary>
-        private readonly TokenBucket m_throttleCategory;
         /// <summary>Throttle buckets for each packet category</summary>
         private readonly TokenBucket[] m_throttleCategories;
         /// <summary>Outgoing queues for throttled packets</summary>
@@ -158,6 +193,14 @@ namespace OpenSim.Region.ClientStack.LindenUDP
 
         private int m_defaultRTO = 1000; // 1sec is the recommendation in the RFC
         private int m_maxRTO = 60000;
+
+        /// <summary>
+        /// This is the percentage of the udp texture queue to add to the task queue since
+        /// textures are now generally handled through http.
+        /// </summary>
+        private double m_cannibalrate = 0.0;
+        
+        private ClientInfo m_info = new ClientInfo();
 
         /// <summary>
         /// Default constructor
@@ -189,21 +232,31 @@ namespace OpenSim.Region.ClientStack.LindenUDP
             if (maxRTO != 0)
                 m_maxRTO = maxRTO;
 
+            ProcessUnackedSends = true;
+
             // Create a token bucket throttle for this client that has the scene token bucket as a parent
-            m_throttleClient = new AdaptiveTokenBucket(parentThrottle, rates.Total, rates.AdaptiveThrottlesEnabled);
-            // Create a token bucket throttle for the total categary with the client bucket as a throttle
-            m_throttleCategory = new TokenBucket(m_throttleClient, 0);
+            m_throttleClient 
+                = new AdaptiveTokenBucket(
+                    string.Format("adaptive throttle for {0} in {1}", AgentID, server.Scene.Name), 
+                    parentThrottle, 0, rates.Total, rates.MinimumAdaptiveThrottleRate, rates.AdaptiveThrottlesEnabled);
+
             // Create an array of token buckets for this clients different throttle categories
             m_throttleCategories = new TokenBucket[THROTTLE_CATEGORY_COUNT];
 
+            m_cannibalrate = rates.CannibalizeTextureRate;
+            
             for (int i = 0; i < THROTTLE_CATEGORY_COUNT; i++)
             {
                 ThrottleOutPacketType type = (ThrottleOutPacketType)i;
 
                 // Initialize the packet outboxes, where packets sit while they are waiting for tokens
                 m_packetOutboxes[i] = new OpenSim.Framework.LocklessQueue<OutgoingPacket>();
+
                 // Initialize the token buckets that control the throttling for each category
-                m_throttleCategories[i] = new TokenBucket(m_throttleCategory, rates.GetRate(type));
+                m_throttleCategories[i]
+                    = new TokenBucket(
+                        string.Format("{0} throttle for {1} in {2}", type, AgentID, server.Scene.Name), 
+                    m_throttleClient, rates.GetRate(type), 0);
             }
 
             // Default the retransmission timeout to one second
@@ -240,20 +293,19 @@ namespace OpenSim.Region.ClientStack.LindenUDP
             // TODO: This data structure is wrong in so many ways. Locking and copying the entire lists
             // of pending and needed ACKs for every client every time some method wants information about
             // this connection is a recipe for poor performance
-            ClientInfo info = new ClientInfo();
-            info.pendingAcks = new Dictionary<uint, uint>();
-            info.needAck = new Dictionary<uint, byte[]>();
 
-            info.resendThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Resend].DripRate;
-            info.landThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Land].DripRate;
-            info.windThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Wind].DripRate;
-            info.cloudThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Cloud].DripRate;
-            info.taskThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Task].DripRate;
-            info.assetThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Asset].DripRate;
-            info.textureThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Texture].DripRate;
-            info.totalThrottle = (int)m_throttleCategory.DripRate;
+            m_info.resendThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Resend].DripRate;
+            m_info.landThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Land].DripRate;
+            m_info.windThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Wind].DripRate;
+            m_info.cloudThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Cloud].DripRate;
+            m_info.taskThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Task].DripRate;
+            m_info.assetThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Asset].DripRate;
+            m_info.textureThrottle = (int)m_throttleCategories[(int)ThrottleOutPacketType.Texture].DripRate;
+            m_info.totalThrottle = (int)m_throttleClient.DripRate;
+            m_info.targetThrottle = (int)m_throttleClient.TargetDripRate;
+            m_info.maxThrottle = (int)m_throttleClient.MaxDripRate;
 
-            return info;
+            return m_info;
         }
 
         /// <summary>
@@ -269,6 +321,33 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         }
 
         /// <summary>
+        /// Get the total number of pakcets queued for this client.
+        /// </summary>
+        /// <returns></returns>
+        public int GetTotalPacketsQueuedCount()
+        {
+            int total = 0;
+
+            for (int i = 0; i <= (int)ThrottleOutPacketType.Asset; i++)
+                total += m_packetOutboxes[i].Count;
+
+            return total;
+        }
+
+        /// <summary>
+        /// Get the number of packets queued for the given throttle type.
+        /// </summary>
+        /// <returns></returns>
+        /// <param name="throttleType"></param>
+        public int GetPacketsQueuedCount(ThrottleOutPacketType throttleType)
+        {
+            if ((int)throttleType > 0)
+                return m_packetOutboxes[(int)throttleType].Count;
+            else
+                return 0;
+        }
+
+        /// <summary>
         /// Return statistics information about client packet queues.
         /// </summary>
         /// <remarks>
@@ -278,7 +357,7 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         public string GetStats()
         {
             return string.Format(
-                "{0,7} {1,7} {2,7} {3,9} {4,7} {5,7} {6,7} {7,7} {8,7} {9,8} {10,7} {11,7} {12,7}",
+                "{0,7} {1,7} {2,7} {3,9} {4,7} {5,7} {6,7} {7,7} {8,7} {9,8} {10,7} {11,7}",
                 Util.EnvironmentTickCountSubtract(TickLastPacketReceived),
                 PacketsReceived,                                 
                 PacketsSent,
@@ -290,8 +369,7 @@ namespace OpenSim.Region.ClientStack.LindenUDP
                 m_packetOutboxes[(int)ThrottleOutPacketType.Cloud].Count,
                 m_packetOutboxes[(int)ThrottleOutPacketType.Task].Count,
                 m_packetOutboxes[(int)ThrottleOutPacketType.Texture].Count,
-                m_packetOutboxes[(int)ThrottleOutPacketType.Asset].Count,
-                m_packetOutboxes[(int)ThrottleOutPacketType.State].Count);                                
+                m_packetOutboxes[(int)ThrottleOutPacketType.Asset].Count);
         }
 
         public void SendPacketStats()
@@ -337,8 +415,14 @@ namespace OpenSim.Region.ClientStack.LindenUDP
             int task = (int)(BitConverter.ToSingle(adjData, pos) * 0.125f); pos += 4;
             int texture = (int)(BitConverter.ToSingle(adjData, pos) * 0.125f); pos += 4;
             int asset = (int)(BitConverter.ToSingle(adjData, pos) * 0.125f);
-            // State is a subcategory of task that we allocate a percentage to
-            int state = 0;
+
+            if (ThrottleDebugLevel > 0)
+            {
+                long total = resend + land + wind + cloud + task + texture + asset;
+                m_log.DebugFormat(
+                    "[LLUDPCLIENT]: {0} is setting throttles in {1} to Resend={2}, Land={3}, Wind={4}, Cloud={5}, Task={6}, Texture={7}, Asset={8}, TOTAL = {9}",
+                    AgentID, m_udpServer.Scene.Name, resend, land, wind, cloud, task, texture, asset, total);
+            }
 
             // Make sure none of the throttles are set below our packet MTU,
             // otherwise a throttle could become permanently clogged
@@ -350,11 +434,29 @@ namespace OpenSim.Region.ClientStack.LindenUDP
             texture = Math.Max(texture, LLUDPServer.MTU);
             asset = Math.Max(asset, LLUDPServer.MTU);
 
+            // Since most textures are now delivered through http, make it possible
+            // to cannibalize some of the bw from the texture throttle to use for
+            // the task queue (e.g. object updates)
+            task = task + (int)(m_cannibalrate * texture);
+            texture = (int)((1 - m_cannibalrate) * texture);
+            
             //int total = resend + land + wind + cloud + task + texture + asset;
-            //m_log.DebugFormat("[LLUDPCLIENT]: {0} is setting throttles. Resend={1}, Land={2}, Wind={3}, Cloud={4}, Task={5}, Texture={6}, Asset={7}, Total={8}",
-            //                  AgentID, resend, land, wind, cloud, task, texture, asset, total);
+
+            if (ThrottleDebugLevel > 0)
+            {
+                long total = resend + land + wind + cloud + task + texture + asset;
+                m_log.DebugFormat(
+                    "[LLUDPCLIENT]: {0} is setting throttles in {1} to Resend={2}, Land={3}, Wind={4}, Cloud={5}, Task={6}, Texture={7}, Asset={8}, TOTAL = {9}",
+                    AgentID, m_udpServer.Scene.Name, resend, land, wind, cloud, task, texture, asset, total);
+            }
 
             // Update the token buckets with new throttle values
+            if (m_throttleClient.AdaptiveEnabled)
+            {
+                long total = resend + land + wind + cloud + task + texture + asset;
+                m_throttleClient.TargetDripRate = total;
+            }
+
             TokenBucket bucket;
 
             bucket = m_throttleCategories[(int)ThrottleOutPacketType.Resend];
@@ -374,9 +476,6 @@ namespace OpenSim.Region.ClientStack.LindenUDP
 
             bucket = m_throttleCategories[(int)ThrottleOutPacketType.Task];
             bucket.RequestedDripRate = task;
-
-            bucket = m_throttleCategories[(int)ThrottleOutPacketType.State];
-            bucket.RequestedDripRate = state;
 
             bucket = m_throttleCategories[(int)ThrottleOutPacketType.Texture];
             bucket.RequestedDripRate = texture;
@@ -620,14 +719,44 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         /// <param name="categories">Throttle categories to fire the callback for</param>
         private void BeginFireQueueEmpty(ThrottleOutPacketTypeFlags categories)
         {
-            if (m_nextOnQueueEmpty != 0 && (Environment.TickCount & Int32.MaxValue) >= m_nextOnQueueEmpty)
+//            if (m_nextOnQueueEmpty != 0 && (Environment.TickCount & Int32.MaxValue) >= m_nextOnQueueEmpty)
+            if (!m_isQueueEmptyRunning && (Environment.TickCount & Int32.MaxValue) >= m_nextOnQueueEmpty)
             {
+                m_isQueueEmptyRunning = true;
+
+                int start = Environment.TickCount & Int32.MaxValue;
+                const int MIN_CALLBACK_MS = 30;
+
+                m_nextOnQueueEmpty = start + MIN_CALLBACK_MS;
+                if (m_nextOnQueueEmpty == 0)
+                    m_nextOnQueueEmpty = 1;
+
                 // Use a value of 0 to signal that FireQueueEmpty is running
-                m_nextOnQueueEmpty = 0;
-                // Asynchronously run the callback
-                Util.FireAndForget(FireQueueEmpty, categories);
+//                m_nextOnQueueEmpty = 0;
+
+                m_categories = categories;
+
+                if (HasUpdates(m_categories))
+                {
+                    if (!m_udpServer.OqrEngine.IsRunning)
+                    {
+                        // Asynchronously run the callback
+                        Util.FireAndForget(FireQueueEmpty, categories, "LLUDPClient.BeginFireQueueEmpty");
+                    }
+                    else
+                    {
+                        m_udpServer.OqrEngine.QueueJob(AgentID.ToString(), () => FireQueueEmpty(categories));
+                    }
+                }
+                else
+                {
+                    m_isQueueEmptyRunning = false;
+                }
             }
         }
+
+        private bool m_isQueueEmptyRunning;
+        private ThrottleOutPacketTypeFlags m_categories = 0;
 
         /// <summary>
         /// Fires the OnQueueEmpty callback and sets the minimum time that it
@@ -636,24 +765,35 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         /// <param name="o">Throttle categories to fire the callback for,
         /// stored as an object to match the WaitCallback delegate
         /// signature</param>
-        private void FireQueueEmpty(object o)
+        public void FireQueueEmpty(object o)
         {
-            const int MIN_CALLBACK_MS = 30;
+//            m_log.DebugFormat("[LLUDPCLIENT]: FireQueueEmpty for {0} in {1}", AgentID, m_udpServer.Scene.Name);
 
-            ThrottleOutPacketTypeFlags categories = (ThrottleOutPacketTypeFlags)o;
-            QueueEmpty callback = OnQueueEmpty;
-            
-            int start = Environment.TickCount & Int32.MaxValue;
+//            int start = Environment.TickCount & Int32.MaxValue;
+//            const int MIN_CALLBACK_MS = 30;
 
-            if (callback != null)
-            {
-                try { callback(categories); }
-                catch (Exception e) { m_log.Error("[LLUDPCLIENT]: OnQueueEmpty(" + categories + ") threw an exception: " + e.Message, e); }
-            }
+//            if (m_udpServer.IsRunningOutbound)
+//            {        
+                ThrottleOutPacketTypeFlags categories = (ThrottleOutPacketTypeFlags)o;
+                QueueEmpty callback = OnQueueEmpty;                      
 
-            m_nextOnQueueEmpty = start + MIN_CALLBACK_MS;
-            if (m_nextOnQueueEmpty == 0)
-                m_nextOnQueueEmpty = 1;
+                if (callback != null)
+                {
+//                    if (m_udpServer.IsRunningOutbound)
+//                    {                
+                        try { callback(categories); }
+                        catch (Exception e) { m_log.Error("[LLUDPCLIENT]: OnQueueEmpty(" + categories + ") threw an exception: " + e.Message, e); }
+//                    }
+                }
+//            }
+
+//            m_nextOnQueueEmpty = start + MIN_CALLBACK_MS;
+//            if (m_nextOnQueueEmpty == 0)
+//                m_nextOnQueueEmpty = 1;
+
+//            }
+
+            m_isQueueEmptyRunning = false;
         }
 
         /// <summary>
@@ -678,9 +818,6 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         Texture = 5,
         /// <summary>Non-texture assets</summary>
         Asset = 6,
-        /// <summary>Avatar and primitive data</summary>
-        /// <remarks>This is a sub-category of Task</remarks>
-        State = 7,
              */
 
             switch (category)
@@ -697,8 +834,6 @@ namespace OpenSim.Region.ClientStack.LindenUDP
                     return ThrottleOutPacketTypeFlags.Texture;
                 case ThrottleOutPacketType.Asset:
                     return ThrottleOutPacketTypeFlags.Asset;
-                case ThrottleOutPacketType.State:
-                    return ThrottleOutPacketTypeFlags.State;
                 default:
                     return 0;
             }

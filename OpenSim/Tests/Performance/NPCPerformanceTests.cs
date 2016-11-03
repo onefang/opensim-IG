@@ -34,7 +34,7 @@ using Nini.Config;
 using NUnit.Framework;
 using OpenMetaverse;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
+
 using OpenSim.Region.CoreModules.Avatar.Attachments;
 using OpenSim.Region.CoreModules.Avatar.AvatarFactory;
 using OpenSim.Region.CoreModules.Framework.InventoryAccess;
@@ -45,7 +45,6 @@ using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.OptionalModules.World.NPC;
 using OpenSim.Services.AvatarService;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Tests.Performance
 {
@@ -144,6 +143,7 @@ namespace OpenSim.Tests.Performance
             // ScenePresence.SendInitialData() to reset our entire appearance.
             scene.AssetService.Store(AssetHelpers.CreateNotecardAsset(originalFace8TextureId));
 
+/*
             afm.SetAppearance(sp, originalTe, null);
 
             INPCModule npcModule = scene.RequestModuleInterface<INPCModule>();
@@ -185,6 +185,7 @@ namespace OpenSim.Tests.Performance
                 endGcMemory / 1024 / 1024,
                 startGcMemory / 1024 / 1024,
                 (endGcMemory - startGcMemory) / 1024 / 1024);
+*/
         }
     }
 }

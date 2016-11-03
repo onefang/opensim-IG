@@ -101,7 +101,14 @@ namespace OpenSim.Services.HypergridService
                 Object[] args = new Object[] { config };
                 m_GridService = ServerUtils.LoadPlugin<IGridService>(gridService, args);
                 m_PresenceService = ServerUtils.LoadPlugin<IPresenceService>(presenceService, args);
-                m_UserAgentService = ServerUtils.LoadPlugin<IUserAgentService>(userAgentService, args);
+                try
+                {
+                    m_UserAgentService = ServerUtils.LoadPlugin<IUserAgentService>(userAgentService, args);
+                }
+                catch
+                {
+                    m_log.WarnFormat("[HG IM SERVICE]: Unable to create User Agent Service. Missing config var  in [HGInstantMessageService]?");
+                }
 
                 m_RegionCache = new ExpiringCache<UUID, GridRegion>();
 
@@ -215,7 +222,15 @@ namespace OpenSim.Services.HypergridService
                 {
                     // Let's check with the UAS if the user is elsewhere
                     m_log.DebugFormat("[HG IM SERVICE]: User is not present. Checking location with User Agent service");
-                    url = m_UserAgentService.LocateUser(toAgentID);
+                    try
+                    {
+                        url = m_UserAgentService.LocateUser(toAgentID);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.Warn("[HG IM SERVICE]: LocateUser call failed ", e);
+                        url = string.Empty;
+                    }
                 }
 
                 // check if we've tried this before..

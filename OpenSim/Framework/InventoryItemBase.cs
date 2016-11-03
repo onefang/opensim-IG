@@ -34,7 +34,7 @@ namespace OpenSim.Framework
     /// Inventory Item - contains all the properties associated with an individual inventory piece.
     /// </summary>
     public class InventoryItemBase : InventoryNodeBase, ICloneable
-    {
+    {        
         /// <value>
         /// The inventory type of the item.  This is slightly different from the asset type in some situations.
         /// </value>
@@ -82,12 +82,15 @@ namespace OpenSim.Framework
             set
             {
                 m_creatorId = value;
+                
+                if ((m_creatorId == null) || !UUID.TryParse(m_creatorId, out m_creatorIdAsUuid))
+                    m_creatorIdAsUuid = UUID.Zero;
             }
         }
         protected string m_creatorId;
 
         /// <value>
-        /// The CreatorId expressed as a UUID.tely
+        /// The CreatorId expressed as a UUID.
         /// </value>
         public UUID CreatorIdAsUuid 
         {
@@ -122,7 +125,7 @@ namespace OpenSim.Framework
         {
             get
             {
-                if (m_creatorData != null && m_creatorData != string.Empty)
+                if (!string.IsNullOrEmpty(m_creatorData))
                     return m_creatorId + ';' + m_creatorData;
                 else
                     return m_creatorId;

@@ -32,7 +32,7 @@ using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.CoreModules.World.Land;
 
-namespace OpenSim.Tests.Common.Mock
+namespace OpenSim.Tests.Common
 {
     /// <summary>
     /// Land channel for test purposes
@@ -79,6 +79,11 @@ namespace OpenSim.Tests.Common.Mock
             ILandObject obj = new LandObject(UUID.Zero, false, m_scene);
             obj.LandData.Name = "NO LAND";
             return obj;
+        }
+
+        public ILandObject GetLandObject(Vector3 position)
+        {
+            return GetLandObject(position.X, position.Y);
         }
 
         public ILandObject GetLandObject(int x, int y)

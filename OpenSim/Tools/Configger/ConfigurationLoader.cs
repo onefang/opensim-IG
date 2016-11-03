@@ -64,14 +64,13 @@ namespace OpenSim.Tools.Configger
         /// <param name="configSettings"></param>
         /// <param name="networkInfo"></param>
         /// <returns>A configuration that gets passed to modules</returns>
-        public IConfigSource LoadConfigSettings()
+        public IConfigSource LoadConfigSettings(IConfig startupConfig)
         {
             bool iniFileExists = false;
 
             List<string> sources = new List<string>();
 
-            string iniFileName = "OpenSim.ini";
-            string iniFilePath = Path.Combine(".", iniFileName);
+            string iniFileName = startupConfig.GetString("inifile", Path.Combine(".", "OpenSim.ini"));
 
             if (IsUri(iniFileName))
             {
@@ -80,10 +79,10 @@ namespace OpenSim.Tools.Configger
             }
             else
             {
-                if (File.Exists(iniFilePath))
+                if (File.Exists(iniFileName))
                 {
-                    if (!sources.Contains(iniFilePath))
-                        sources.Add(iniFilePath);
+                    if (!sources.Contains(iniFileName))
+                        sources.Add(iniFileName);
                 }
             }
 
@@ -239,10 +238,7 @@ namespace OpenSim.Tools.Configger
                 config.Set("physics", "OpenDynamicsEngine");
                 config.Set("meshing", "Meshmerizer");
                 config.Set("physical_prim", true);
-                config.Set("see_into_this_sim_from_neighbor", true);
                 config.Set("serverside_object_permissions", true);
-                config.Set("storage_plugin", "OpenSim.Data.SQLite.dll");
-                config.Set("storage_connection_string", "URI=file:OpenSim.db,version=3");
                 config.Set("storage_prim_inventories", true);
                 config.Set("startup_console_commands_file", String.Empty);
                 config.Set("shutdown_console_commands_file", String.Empty);
@@ -254,6 +250,5 @@ namespace OpenSim.Tools.Configger
 
             return defaultConfig;
         }
-
     }
 }

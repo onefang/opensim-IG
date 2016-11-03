@@ -48,6 +48,7 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
         private static readonly ILog m_log =
                 LogManager.GetLogger(
                 MethodBase.GetCurrentMethod().DeclaringType);
+        private static string LogHeader = "[LOCAL GRID SERVICE CONNECTOR]";
 
         private IGridService m_GridService;
         private Dictionary<UUID, RegionCache> m_LocalCache = new Dictionary<UUID, RegionCache>();
@@ -56,11 +57,12 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
 
         public LocalGridServicesConnector()
         {
+            m_log.DebugFormat("{0} LocalGridServicesConnector no parms.", LogHeader);
         }
 
         public LocalGridServicesConnector(IConfigSource source)
         {
-            m_log.Debug("[LOCAL GRID SERVICE CONNECTOR]: LocalGridServicesConnector instantiated directly.");
+            m_log.DebugFormat("{0} LocalGridServicesConnector instantiated directly.", LogHeader);
             InitialiseService(source);
         }
 
@@ -92,15 +94,14 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
 
         private void InitialiseService(IConfigSource source)
         {
-            IConfig assetConfig = source.Configs["GridService"];
-            if (assetConfig == null)
+            IConfig config = source.Configs["GridService"];
+            if (config == null)
             {
                 m_log.Error("[LOCAL GRID SERVICE CONNECTOR]: GridService missing from OpenSim.ini");
                 return;
             }
 
-            string serviceDll = assetConfig.GetString("LocalServiceModule",
-                    String.Empty);
+            string serviceDll = config.GetString("LocalServiceModule", String.Empty);
 
             if (serviceDll == String.Empty)
             {
@@ -142,10 +143,13 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
 
             scene.RegisterModuleInterface<IGridService>(this);
 
-            if (m_LocalCache.ContainsKey(scene.RegionInfo.RegionID))
-                m_log.ErrorFormat("[LOCAL GRID SERVICE CONNECTOR]: simulator seems to have more than one region with the same UUID. Please correct this!");
-            else
-                m_LocalCache.Add(scene.RegionInfo.RegionID, new RegionCache(scene));
+            lock (m_LocalCache)
+            {
+                if (m_LocalCache.ContainsKey(scene.RegionInfo.RegionID))
+                    m_log.ErrorFormat("[LOCAL GRID SERVICE CONNECTOR]: simulator seems to have more than one region with the same UUID. Please correct this!");
+                else
+                    m_LocalCache.Add(scene.RegionInfo.RegionID, new RegionCache(scene));
+            }
         }
 
         public void RemoveRegion(Scene scene)
@@ -153,8 +157,11 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
             if (!m_Enabled)
                 return;
 
-            m_LocalCache[scene.RegionInfo.RegionID].Clear();
-            m_LocalCache.Remove(scene.RegionInfo.RegionID);
+            lock (m_LocalCache)
+            {
+                m_LocalCache[scene.RegionInfo.RegionID].Clear();
+                m_LocalCache.Remove(scene.RegionInfo.RegionID);
+            }
         }
 
         public void RegionLoaded(Scene scene)
@@ -185,23 +192,59 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
             return m_GridService.GetRegionByUUID(scopeID, regionID);
         }
 
+        // Get a region given its base coordinates.
+        // NOTE: this is NOT 'get a region by some point in the region'. The coordinate MUST
+        //     be the base coordinate of the region.
         public GridRegion GetRegionByPosition(UUID scopeID, int x, int y)
         {
             GridRegion region = null;
+            uint regionX = Util.WorldToRegionLoc((uint)x);
+            uint regionY = Util.WorldToRegionLoc((uint)y);
+
+            // Sanity check
+            if ((Util.RegionToWorldLoc(regionX) != (uint)x) || (Util.RegionToWorldLoc(regionY) != (uint)y))
+            {
+                m_log.WarnFormat("{0} GetRegionByPosition. Bad position requested: not the base of the region. Requested Pos=<{1},{2}>, Should Be=<{3},{4}>",
+                    LogHeader, x, y, Util.RegionToWorldLoc(regionX), Util.RegionToWorldLoc(regionY));
+            }
 
             // First see if it's a neighbour, even if it isn't on this sim.
             // Neighbour data is cached in memory, so this is fast
-            foreach (RegionCache rcache in m_LocalCache.Values)
+
+            lock (m_LocalCache)
             {
-                region = rcache.GetRegionByPosition(x, y);
-                if (region != null)
+                foreach (RegionCache rcache in m_LocalCache.Values)
                 {
-                    return region;
+                    region = rcache.GetRegionByPosition(x, y);
+                    if (region != null)
+                    {
+                        m_log.DebugFormat("{0} GetRegionByPosition. Found region {1} in cache (of region {2}). Pos=<{3},{4}>",
+                                         LogHeader, region.RegionName, rcache.RegionName,
+                                         Util.WorldToRegionLoc((uint)region.RegionLocX), Util.WorldToRegionLoc((uint)region.RegionLocY));
+                        break;
+                    }
                 }
             }
 
             // Then try on this sim (may be a lookup in DB if this is using MySql).
-            return m_GridService.GetRegionByPosition(scopeID, x, y);
+            if (region == null)
+            {
+                region = m_GridService.GetRegionByPosition(scopeID, x, y);
+
+                if (region == null)
+                {
+                    m_log.DebugFormat("{0} GetRegionByPosition. Region not found by grid service. Pos=<{1},{2}>",
+                                      LogHeader, regionX, regionY);
+                }
+                else
+                {
+                    m_log.DebugFormat("{0} GetRegionByPosition. Got region {1} from grid service. Pos=<{2},{3}>",
+                                      LogHeader, region.RegionName,
+                                      Util.WorldToRegionLoc((uint)region.RegionLocX), Util.WorldToRegionLoc((uint)region.RegionLocY));
+                }
+            }
+
+            return region;
         }
 
         public GridRegion GetRegionByName(UUID scopeID, string regionName)
@@ -224,6 +267,11 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
             return m_GridService.GetDefaultRegions(scopeID);
         }
 
+        public List<GridRegion> GetDefaultHypergridRegions(UUID scopeID)
+        {
+            return m_GridService.GetDefaultHypergridRegions(scopeID);
+        }
+
         public List<GridRegion> GetFallbackRegions(UUID scopeID, int x, int y)
         {
             return m_GridService.GetFallbackRegions(scopeID, x, y);
@@ -239,18 +287,26 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid
             return m_GridService.GetRegionFlags(scopeID, regionID);
         }
 
+        public Dictionary<string, object> GetExtraFeatures()
+        {
+            return m_GridService.GetExtraFeatures();
+        }
+
         #endregion
 
         public void HandleShowNeighboursCommand(string module, string[] cmdparams)
         {
             System.Text.StringBuilder caps = new System.Text.StringBuilder();
 
-            foreach (KeyValuePair<UUID, RegionCache> kvp in m_LocalCache)
+            lock (m_LocalCache)
             {
-                caps.AppendFormat("*** Neighbours of {0} ({1}) ***\n", kvp.Value.RegionName, kvp.Key);
-                List<GridRegion> regions = kvp.Value.GetNeighbours();
-                foreach (GridRegion r in regions)
-                    caps.AppendFormat("    {0} @ {1}-{2}\n", r.RegionName, r.RegionLocX / Constants.RegionSize, r.RegionLocY / Constants.RegionSize);
+                foreach (KeyValuePair<UUID, RegionCache> kvp in m_LocalCache)
+                {
+                    caps.AppendFormat("*** Neighbours of {0} ({1}) ***\n", kvp.Value.RegionName, kvp.Key);
+                    List<GridRegion> regions = kvp.Value.GetNeighbours();
+                    foreach (GridRegion r in regions)
+                        caps.AppendFormat("    {0} @ {1}-{2}\n", r.RegionName, Util.WorldToRegionLoc((uint)r.RegionLocX), Util.WorldToRegionLoc((uint)r.RegionLocY));
+                }
             }
 
             MainConsole.Instance.Output(caps.ToString());

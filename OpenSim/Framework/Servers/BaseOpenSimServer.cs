@@ -45,6 +45,7 @@ using OpenSim.Framework.Monitoring;
 using OpenSim.Framework.Servers;
 using OpenSim.Framework.Servers.HttpServer;
 using Timer=System.Timers.Timer;
+using Nini.Config;
 
 namespace OpenSim.Framework.Servers
 {
@@ -56,9 +57,15 @@ namespace OpenSim.Framework.Servers
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
         /// <summary>
+        /// Used by tests to suppress Environment.Exit(0) so that post-run operations are possible.
+        /// </summary>
+        public bool SuppressExit { get; set; }
+
+        /// <summary>
         /// This will control a periodic log printout of the current 'show stats' (if they are active) for this
         /// server.
         /// </summary>
+        private int m_periodDiagnosticTimerMS = 60 * 60 * 1000;
         private Timer m_periodicDiagnosticsTimer = new Timer(60 * 60 * 1000);
         
         /// <summary>
@@ -77,8 +84,6 @@ namespace OpenSim.Framework.Servers
             // Random uuid for private data
             m_osSecret = UUID.Random().ToString();
 
-            m_periodicDiagnosticsTimer.Elapsed += new ElapsedEventHandler(LogDiagnostics);
-            m_periodicDiagnosticsTimer.Enabled = true;
         }
         
         /// <summary>
@@ -86,24 +91,32 @@ namespace OpenSim.Framework.Servers
         /// </summary>
         protected virtual void StartupSpecific()
         {
-            if (m_console == null)
-                return;
-
+            StatsManager.SimExtraStats = new SimExtraStatsCollector();
             RegisterCommonCommands();
-            
-            m_console.Commands.AddCommand("General", false, "quit",
-                    "quit",
-                    "Quit the application", HandleQuit);
+            RegisterCommonComponents(Config);
 
-            m_console.Commands.AddCommand("General", false, "shutdown",
-                    "shutdown",
-                    "Quit the application", HandleQuit);
+            IConfig startupConfig = Config.Configs["Startup"];
+            int logShowStatsSeconds = startupConfig.GetInt("LogShowStatsSeconds", m_periodDiagnosticTimerMS / 1000);
+            m_periodDiagnosticTimerMS = logShowStatsSeconds * 1000;
+            m_periodicDiagnosticsTimer.Elapsed += new ElapsedEventHandler(LogDiagnostics);
+            if (m_periodDiagnosticTimerMS != 0)
+            {
+                m_periodicDiagnosticsTimer.Interval = m_periodDiagnosticTimerMS;
+                m_periodicDiagnosticsTimer.Enabled = true;
+            }
+        }       
+
+        protected override void ShutdownSpecific()
+        {            
+            m_log.Info("[SHUTDOWN]: Shutdown processing on main thread complete.  Exiting...");
+
+            RemovePIDFile();
+
+            base.ShutdownSpecific();
+
+            if (!SuppressExit)
+                Environment.Exit(0);
         }
-        
-        /// <summary>
-        /// Should be overriden and referenced by descendents if they need to perform extra shutdown processing
-        /// </summary>
-        public virtual void ShutdownSpecific() {}
         
         /// <summary>
         /// Provides a list of help topics that are available.  Overriding classes should append their topics to the
@@ -133,45 +146,18 @@ namespace OpenSim.Framework.Servers
         /// Performs initialisation of the scene, such as loading configuration from disk.
         /// </summary>
         public virtual void Startup()
-        {
-            m_log.Info("[STARTUP]: Beginning startup processing");
-            
-            m_log.Info("[STARTUP]: OpenSimulator version: " + m_version + Environment.NewLine);
-            // clr version potentially is more confusing than helpful, since it doesn't tell us if we're running under Mono/MS .NET and
-            // the clr version number doesn't match the project version number under Mono.
-            //m_log.Info("[STARTUP]: Virtual machine runtime version: " + Environment.Version + Environment.NewLine);
-            m_log.InfoFormat(
-                "[STARTUP]: Operating system version: {0}, .NET platform {1}, {2}-bit\n",
-                Environment.OSVersion, Environment.OSVersion.Platform, Util.Is64BitProcess() ? "64" : "32");
-            
+        {            
             StartupSpecific();
             
             TimeSpan timeTaken = DateTime.Now - m_startuptime;
             
-            m_log.InfoFormat(
-                "[STARTUP]: Non-script portion of startup took {0}m {1}s.  PLEASE WAIT FOR LOGINS TO BE ENABLED ON REGIONS ONCE SCRIPTS HAVE STARTED.",
+            MainConsole.Instance.OutputFormat(
+                "PLEASE WAIT FOR LOGINS TO BE ENABLED ON REGIONS ONCE SCRIPTS HAVE STARTED.  Non-script portion of startup took {0}m {1}s.",
                 timeTaken.Minutes, timeTaken.Seconds);
         }
 
-        /// <summary>
-        /// Should be overriden and referenced by descendents if they need to perform extra shutdown processing
-        /// </summary>
-        public virtual void Shutdown()
+        public string osSecret 
         {
-            ShutdownSpecific();
-            
-            m_log.Info("[SHUTDOWN]: Shutdown processing on main thread complete.  Exiting...");
-            RemovePIDFile();
-            
-            Environment.Exit(0);
-        }
-
-        private void HandleQuit(string module, string[] args)
-        {
-            Shutdown();
-        }      
-        
-        public string osSecret {
             // Secret uuid for the simulator
             get { return m_osSecret; }            
         }

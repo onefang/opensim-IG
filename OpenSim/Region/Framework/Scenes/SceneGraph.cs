@@ -34,7 +34,7 @@ using OpenMetaverse.Packets;
 using log4net;
 using OpenSim.Framework;
 using OpenSim.Region.Framework.Scenes.Types;
-using OpenSim.Region.Physics.Manager;
+using OpenSim.Region.PhysicsModules.SharedBase;
 using OpenSim.Region.Framework.Interfaces;
 
 namespace OpenSim.Region.Framework.Scenes
@@ -67,7 +67,9 @@ namespace OpenSim.Region.Framework.Scenes
         protected Scene m_parentScene;
         protected Dictionary<UUID, SceneObjectGroup> m_updateList = new Dictionary<UUID, SceneObjectGroup>();
         protected int m_numRootAgents = 0;
+        protected int m_numTotalPrim = 0;
         protected int m_numPrim = 0;
+        protected int m_numMesh = 0;
         protected int m_numChildAgents = 0;
         protected int m_physicalPrim = 0;
 
@@ -109,7 +111,12 @@ namespace OpenSim.Region.Framework.Scenes
 
         public PhysicsScene PhysicsScene
         {
-            get { return _PhyScene; }
+            get 
+            {
+                if (_PhyScene == null)
+                    _PhyScene = m_parentScene.RequestModuleInterface<PhysicsScene>();
+                return _PhyScene; 
+            }
             set
             {
                 // If we're not doing the initial set
@@ -155,9 +162,9 @@ namespace OpenSim.Region.Framework.Scenes
 
             // PhysX does this (runs in the background).
 
-            if (_PhyScene.IsThreaded)
+            if (PhysicsScene.IsThreaded)
             {
-                _PhyScene.GetResults();
+                PhysicsScene.GetResults();
             }
         }
 
@@ -197,7 +204,7 @@ namespace OpenSim.Region.Framework.Scenes
             // position).
             //
             // Therefore, JointMoved and JointDeactivated events will be fired as a result of the following Simulate().
-            return _PhyScene.Simulate((float)elapsed);
+            return PhysicsScene.Simulate((float)elapsed);
         }
 
         protected internal void UpdateScenePresenceMovement()
@@ -368,7 +375,8 @@ namespace OpenSim.Region.Framework.Scenes
 
             SceneObjectPart[] parts = sceneObject.Parts;
 
-            // Clamp child prim sizes and add child prims to the m_numPrim count
+            // Clamp the sizes (scales) of the child prims and add the child prims to the count of all primitives
+            // (meshes and geometric primitives) in the scene; add child prims to m_numTotalPrim count
             if (m_parentScene.m_clampPrimSize)
             {
                 foreach (SceneObjectPart part in parts)
@@ -382,7 +390,19 @@ namespace OpenSim.Region.Framework.Scenes
                     part.Shape.Scale = scale;
                 }
             }
-            m_numPrim += parts.Length;
+            m_numTotalPrim += parts.Length;
+
+            // Go through all parts (geometric primitives and meshes) of this Scene Object
+            foreach (SceneObjectPart part in parts)
+            {
+                // Keep track of the total number of meshes or geometric primitives now in the scene;
+                // determine which object this is based on its primitive type: sculpted (sculpt) prim refers to
+                // a mesh and all other prims (i.e. box, sphere, etc) are geometric primitives
+                if (part.GetPrimType() == PrimType.SCULPT)
+                    m_numMesh++;
+                else
+                    m_numPrim++;
+            }
 
             sceneObject.AttachToScene(m_parentScene);
 
@@ -437,7 +457,21 @@ namespace OpenSim.Region.Framework.Scenes
 
             if (!resultOfObjectLinked)
             {
-                m_numPrim -= grp.PrimCount;
+                // Decrement the total number of primitives (meshes and geometric primitives)
+                // that are part of the Scene Object being removed
+                m_numTotalPrim -= grp.PrimCount;
+
+                // Go through all parts (primitives and meshes) of this Scene Object
+                foreach (SceneObjectPart part in grp.Parts)
+                {
+                    // Keep track of the total number of meshes or geometric primitives left in the scene;
+                    // determine which object this is based on its primitive type: sculpted (sculpt) prim refers to
+                    // a mesh and all other prims (i.e. box, sphere, etc) are geometric primitives
+                    if (part.GetPrimType() == PrimType.SCULPT)
+                        m_numMesh--;
+                    else
+                        m_numPrim--;
+                }
 
                 if ((grp.RootPart.Flags & PrimFlags.Physics) == PrimFlags.Physics)
                     RemovePhysicalPrim(grp.PrimCount);
@@ -519,12 +553,12 @@ namespace OpenSim.Region.Framework.Scenes
 
         protected internal void AddPhysicalPrim(int number)
         {
-            m_physicalPrim++;
+            m_physicalPrim += number;
         }
 
         protected internal void RemovePhysicalPrim(int number)
         {
-            m_physicalPrim--;
+            m_physicalPrim -= number;
         }
 
         protected internal void AddToScriptLPS(int number)
@@ -561,39 +595,15 @@ namespace OpenSim.Region.Framework.Scenes
         protected internal ScenePresence CreateAndAddChildScenePresence(
             IClientAPI client, AvatarAppearance appearance, PresenceType type)
         {
-            ScenePresence newAvatar = null;
-
             // ScenePresence always defaults to child agent
-            newAvatar = new ScenePresence(client, m_parentScene, appearance, type);
-
-            AddScenePresence(newAvatar);
-
-            return newAvatar;
-        }
-
-        /// <summary>
-        /// Add a presence to the scene
-        /// </summary>
-        /// <param name="presence"></param>
-        protected internal void AddScenePresence(ScenePresence presence)
-        {
-            // Always a child when added to the scene
-            bool child = presence.IsChildAgent;
-
-            if (child)
-            {
-                m_numChildAgents++;
-            }
-            else
-            {
-                m_numRootAgents++;
-                presence.AddToPhysicalScene(false);
-            }
+            ScenePresence presence = new ScenePresence(client, m_parentScene, appearance, type);
 
             Entities[presence.UUID] = presence;
 
             lock (m_presenceLock)
             {
+                m_numChildAgents++;
+
                 Dictionary<UUID, ScenePresence> newmap = new Dictionary<UUID, ScenePresence>(m_scenePresenceMap);
                 List<ScenePresence> newlist = new List<ScenePresence>(m_scenePresenceArray);
 
@@ -604,7 +614,7 @@ namespace OpenSim.Region.Framework.Scenes
                 }
                 else
                 {
-                    // Remember the old presene reference from the dictionary
+                    // Remember the old presence reference from the dictionary
                     ScenePresence oldref = newmap[presence.UUID];
                     // Replace the presence reference in the dictionary with the new value
                     newmap[presence.UUID] = presence;
@@ -616,6 +626,8 @@ namespace OpenSim.Region.Framework.Scenes
                 m_scenePresenceMap = newmap;
                 m_scenePresenceArray = newlist;
             }
+
+            return presence;
         }
 
         /// <summary>
@@ -709,7 +721,17 @@ namespace OpenSim.Region.Framework.Scenes
 
         public int GetTotalObjectsCount()
         {
+            return m_numTotalPrim;
+        }
+
+        public int GetTotalPrimObjectsCount()
+        {
             return m_numPrim;
+        }
+
+        public int GetTotalMeshObjectsCount()
+        {
+            return m_numMesh;
         }
 
         public int GetActiveObjectsCount()
@@ -794,7 +816,8 @@ namespace OpenSim.Region.Framework.Scenes
             List<ScenePresence> presences = GetScenePresences();
             foreach (ScenePresence presence in presences)
             {
-                if (presence.Firstname == firstName && presence.Lastname == lastName)
+                if (string.Equals(presence.Firstname, firstName, StringComparison.CurrentCultureIgnoreCase)
+                    && string.Equals(presence.Lastname, lastName, StringComparison.CurrentCultureIgnoreCase))
                     return presence;
             }
             return null;
@@ -1348,12 +1371,23 @@ namespace OpenSim.Region.Framework.Scenes
         /// <summary>
         /// Update the position of the given group.
         /// </summary>
-        /// <param name="localID"></param>
+        /// <param name="localId"></param>
         /// <param name="pos"></param>
         /// <param name="remoteClient"></param>
-        public void UpdatePrimGroupPosition(uint localID, Vector3 pos, IClientAPI remoteClient)
+        public void UpdatePrimGroupPosition(uint localId, Vector3 pos, IClientAPI remoteClient)
         {
-            SceneObjectGroup group = GetGroupByPrim(localID);
+            UpdatePrimGroupPosition(localId, pos, remoteClient.AgentId);
+        }
+
+        /// <summary>
+        /// Update the position of the given group.
+        /// </summary>
+        /// <param name="localId"></param>
+        /// <param name="pos"></param>
+        /// <param name="updatingAgentId"></param>
+        public void UpdatePrimGroupPosition(uint localId, Vector3 pos, UUID updatingAgentId)
+        {
+            SceneObjectGroup group = GetGroupByPrim(localId);
             
             if (group != null)
             {
@@ -1364,7 +1398,7 @@ namespace OpenSim.Region.Framework.Scenes
                 }
                 else
                 {
-                    if (m_parentScene.Permissions.CanMoveObject(group.UUID, remoteClient.AgentId) 
+                    if (m_parentScene.Permissions.CanMoveObject(group.UUID, updatingAgentId) 
                         && m_parentScene.Permissions.CanObjectEntry(group.UUID, false, pos))
                     {
                         group.UpdateGroupPosition(pos);
@@ -1408,7 +1442,7 @@ namespace OpenSim.Region.Framework.Scenes
         /// <param name="SetPhantom"></param>
         /// <param name="remoteClient"></param>
         protected internal void UpdatePrimFlags(
-            uint localID, bool UsePhysics, bool SetTemporary, bool SetPhantom, IClientAPI remoteClient)
+            uint localID, bool UsePhysics, bool SetTemporary, bool SetPhantom, ExtraPhysicsData PhysData, IClientAPI remoteClient)
         {
             SceneObjectGroup group = GetGroupByPrim(localID);
             if (group != null)
@@ -1416,7 +1450,28 @@ namespace OpenSim.Region.Framework.Scenes
                 if (m_parentScene.Permissions.CanEditObject(group.UUID, remoteClient.AgentId))
                 {
                     // VolumeDetect can't be set via UI and will always be off when a change is made there
-                    group.UpdatePrimFlags(localID, UsePhysics, SetTemporary, SetPhantom, false);
+                    // now only change volume dtc if phantom off
+
+                    if (PhysData.PhysShapeType == PhysShapeType.invalid) // check for extraPhysics data
+                    {
+                        bool vdtc;
+                        if (SetPhantom) // if phantom keep volumedtc
+                            vdtc = group.RootPart.VolumeDetectActive;
+                        else // else turn it off
+                            vdtc = false;
+
+                        group.UpdatePrimFlags(localID, UsePhysics, SetTemporary, SetPhantom, vdtc);
+                    }
+                    else
+                    {
+                        SceneObjectPart part = GetSceneObjectPart(localID);
+                        if (part != null)
+                        {
+                            part.UpdateExtraPhysics(PhysData);
+                            if (part.UpdatePhysRequired)
+                                remoteClient.SendPartPhysicsProprieties(part);
+                        }
+                    }
                 }
             }
         }
@@ -1435,8 +1490,9 @@ namespace OpenSim.Region.Framework.Scenes
             {
                 if (m_parentScene.Permissions.CanMoveObject(group.UUID, remoteClient.AgentId))// && PermissionsMngr.)
                 {
-                    group.GrabMovement(offset, pos, remoteClient);
+                    group.GrabMovement(objectID, offset, pos, remoteClient);
                 }
+
                 // This is outside the above permissions condition
                 // so that if the object is locked the client moving the object
                 // get's it's position on the simulator even if it was the same as before
@@ -1624,6 +1680,12 @@ namespace OpenSim.Region.Framework.Scenes
         /// <param name="childPrims"></param>
         protected internal void LinkObjects(SceneObjectPart root, List<SceneObjectPart> children)
         {
+            if (root.KeyframeMotion != null)
+            {
+                root.KeyframeMotion.Stop();
+                root.KeyframeMotion = null;
+            }
+
             SceneObjectGroup parentGroup = root.ParentGroup;
             if (parentGroup == null) return;
 
@@ -1701,6 +1763,11 @@ namespace OpenSim.Region.Framework.Scenes
                 {
                     if (part != null)
                     {
+                        if (part.KeyframeMotion != null)
+                        {
+                            part.KeyframeMotion.Stop();
+                            part.KeyframeMotion = null;
+                        }
                         if (part.ParentGroup.PrimCount != 1) // Skip single
                         {
                             if (part.LinkNum < 2) // Root
@@ -1884,7 +1951,7 @@ namespace OpenSim.Region.Framework.Scenes
                 if (original == null)
                 {
                     m_log.WarnFormat(
-                        "[SCENEGRAPH]: Attempt to duplicate nonexistant prim id {0} by {1}", originalPrimID, AgentID);
+                        "[SCENEGRAPH]: Attempt to duplicate nonexistent prim id {0} by {1}", originalPrimID, AgentID);
 
                     return null;
                 }
@@ -1947,7 +2014,19 @@ namespace OpenSim.Region.Framework.Scenes
                 // think it's selected, so it will never send a deselect...
                 copy.IsSelected = false;
 
-                m_numPrim += copy.Parts.Length;
+                m_numTotalPrim += copy.Parts.Length;
+
+                // Go through all parts (primitives and meshes) of this Scene Object
+                foreach (SceneObjectPart part in copy.Parts)
+                {
+                    // Keep track of the total number of meshes or geometric primitives now in the scene;
+                    // determine which object this is based on its primitive type: sculpted (sculpt) prim refers to
+                    // a mesh and all other prims (i.e. box, sphere, etc) are geometric primitives
+                    if (part.GetPrimType() == PrimType.SCULPT)
+                        m_numMesh++;
+                    else
+                        m_numPrim++;
+                }
 
                 if (rot != Quaternion.Identity)
                 {

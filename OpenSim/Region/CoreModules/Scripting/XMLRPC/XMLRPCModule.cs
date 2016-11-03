@@ -36,6 +36,7 @@ using Nini.Config;
 using Nwc.XmlRpc;
 using OpenMetaverse;
 using OpenSim.Framework;
+using OpenSim.Framework.Monitoring;
 using OpenSim.Framework.Servers;
 using OpenSim.Framework.Servers.HttpServer;
 using OpenSim.Region.Framework.Interfaces;
@@ -111,13 +112,15 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
             m_rpcPending = new Dictionary<UUID, RPCRequestInfo>();
             m_rpcPendingResponses = new Dictionary<UUID, RPCRequestInfo>();
             m_pendingSRDResponses = new Dictionary<UUID, SendRemoteDataRequest>();
-
-            try
+            if (config.Configs["XMLRPC"] != null)
             {
-                m_remoteDataPort = config.Configs["XMLRPC"].GetInt("XmlRpcPort", m_remoteDataPort);
-            }
-            catch (Exception)
-            {
+                try
+                {
+                    m_remoteDataPort = config.Configs["XMLRPC"].GetInt("XmlRpcPort", m_remoteDataPort);
+                }
+                catch (Exception)
+                {
+                }
             }
         }
 
@@ -654,12 +657,8 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
 
         public void Process()
         {
-            httpThread = new Thread(SendRequest);
-            httpThread.Name = "HttpRequestThread";
-            httpThread.Priority = ThreadPriority.BelowNormal;
-            httpThread.IsBackground = true;
             _finished = false;
-            httpThread.Start();
+            httpThread = WorkManager.StartThread(SendRequest, "HttpRequestThread", ThreadPriority.BelowNormal, true, false);
         }
 
         /*
@@ -675,7 +674,7 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
             // if not, use as method name
             UUID parseUID;
             string mName = "llRemoteData";
-            if ((Channel != null) && (Channel != ""))
+            if (!string.IsNullOrEmpty(Channel))
                 if (!UUID.TryParse(Channel, out parseUID))
                     mName = Channel;
                 else
@@ -731,13 +730,19 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
             }
 
             _finished = true;
+
+            Watchdog.RemoveThread();
         }
 
         public void Stop()
         {
             try
             {
-                httpThread.Abort();
+                if (httpThread != null)
+                {
+                    Watchdog.AbortThread(httpThread.ManagedThreadId);
+                    httpThread = null;
+                }
             }
             catch (Exception)
             {

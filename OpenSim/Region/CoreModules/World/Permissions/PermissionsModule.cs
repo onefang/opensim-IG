@@ -27,6 +27,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using log4net;
 using Nini.Config;
@@ -38,6 +39,7 @@ using OpenSim.Region.Framework.Scenes;
 using OpenSim.Services.Interfaces;
 
 using Mono.Addins;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.CoreModules.World.Permissions
 {
@@ -156,37 +158,44 @@ namespace OpenSim.Region.CoreModules.World.Permissions
 
         public void Initialise(IConfigSource config)
         {
-            IConfig myConfig = config.Configs["Startup"];
+            string permissionModules = Util.GetConfigVarFromSections<string>(config, "permissionmodules",
+                new string[] { "Startup", "Permissions" }, "DefaultPermissionsModule");
 
-            string permissionModules = myConfig.GetString("permissionmodules", "DefaultPermissionsModule");
-
-            List<string> modules = new List<string>(permissionModules.Split(','));
+            List<string> modules = new List<string>(permissionModules.Split(',').Select(m => m.Trim()));
 
             if (!modules.Contains("DefaultPermissionsModule"))
                 return;
 
             m_Enabled = true;
 
-            m_allowGridGods = myConfig.GetBoolean("allow_grid_gods", false);
-            m_bypassPermissions = !myConfig.GetBoolean("serverside_object_permissions", true);
-            m_propagatePermissions = myConfig.GetBoolean("propagate_permissions", true);
-            m_RegionOwnerIsGod = myConfig.GetBoolean("region_owner_is_god", true);
-            m_RegionManagerIsGod = myConfig.GetBoolean("region_manager_is_god", false);
-            m_ParcelOwnerIsGod = myConfig.GetBoolean("parcel_owner_is_god", true);
+            m_allowGridGods = Util.GetConfigVarFromSections<bool>(config, "allow_grid_gods",
+                new string[] { "Startup", "Permissions" }, false); 
+            m_bypassPermissions = !Util.GetConfigVarFromSections<bool>(config, "serverside_object_permissions",
+                new string[] { "Startup", "Permissions" }, true); 
+            m_propagatePermissions = Util.GetConfigVarFromSections<bool>(config, "propagate_permissions",
+                new string[] { "Startup", "Permissions" }, true); 
+            m_RegionOwnerIsGod = Util.GetConfigVarFromSections<bool>(config, "region_owner_is_god",
+                new string[] { "Startup", "Permissions" }, true); 
+            m_RegionManagerIsGod = Util.GetConfigVarFromSections<bool>(config, "region_manager_is_god",
+                new string[] { "Startup", "Permissions" }, false); 
+            m_ParcelOwnerIsGod = Util.GetConfigVarFromSections<bool>(config, "parcel_owner_is_god",
+                new string[] { "Startup", "Permissions" }, true);
 
-            m_SimpleBuildPermissions = myConfig.GetBoolean("simple_build_permissions", false);
+            m_SimpleBuildPermissions = Util.GetConfigVarFromSections<bool>(config, "simple_build_permissions",
+                new string[] { "Startup", "Permissions" }, false); 
 
             m_allowedScriptCreators
-                = ParseUserSetConfigSetting(myConfig, "allowed_script_creators", m_allowedScriptCreators);
+                = ParseUserSetConfigSetting(config, "allowed_script_creators", m_allowedScriptCreators);
             m_allowedScriptEditors
-                = ParseUserSetConfigSetting(myConfig, "allowed_script_editors", m_allowedScriptEditors);
+                = ParseUserSetConfigSetting(config, "allowed_script_editors", m_allowedScriptEditors);
 
             if (m_bypassPermissions)
                 m_log.Info("[PERMISSIONS]: serverside_object_permissions = false in ini file so disabling all region service permission checks");
             else
                 m_log.Debug("[PERMISSIONS]: Enabling all region service permission checks");
 
-            string grant = myConfig.GetString("GrantLSL", "");
+            string grant = Util.GetConfigVarFromSections<string>(config, "GrantLSL",
+                new string[] { "Startup", "Permissions" }, string.Empty);
             if (grant.Length > 0)
             {
                 foreach (string uuidl in grant.Split(','))
@@ -196,7 +205,8 @@ namespace OpenSim.Region.CoreModules.World.Permissions
                 }
             }
 
-            grant = myConfig.GetString("GrantCS", "");
+            grant = Util.GetConfigVarFromSections<string>(config, "GrantCS",
+                new string[] { "Startup", "Permissions" }, string.Empty); 
             if (grant.Length > 0)
             {
                 foreach (string uuidl in grant.Split(','))
@@ -206,7 +216,8 @@ namespace OpenSim.Region.CoreModules.World.Permissions
                 }
             }
 
-            grant = myConfig.GetString("GrantVB", "");
+            grant = Util.GetConfigVarFromSections<string>(config, "GrantVB",
+                new string[] { "Startup", "Permissions" }, string.Empty);
             if (grant.Length > 0)
             {
                 foreach (string uuidl in grant.Split(','))
@@ -216,7 +227,8 @@ namespace OpenSim.Region.CoreModules.World.Permissions
                 }
             }
 
-            grant = myConfig.GetString("GrantJS", "");
+            grant = Util.GetConfigVarFromSections<string>(config, "GrantJS",
+                new string[] { "Startup", "Permissions" }, string.Empty);
             if (grant.Length > 0)
             {
                 foreach (string uuidl in grant.Split(','))
@@ -226,7 +238,8 @@ namespace OpenSim.Region.CoreModules.World.Permissions
                 }
             }
 
-            grant = myConfig.GetString("GrantYP", "");
+            grant = Util.GetConfigVarFromSections<string>(config, "GrantYP",
+                new string[] { "Startup", "Permissions" }, string.Empty);
             if (grant.Length > 0)
             {
                 foreach (string uuidl in grant.Split(','))
@@ -456,7 +469,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
 
             return false;
         }
-            
+         
         /// <summary>
         /// Parse a user set configuration setting
         /// </summary>
@@ -464,11 +477,12 @@ namespace OpenSim.Region.CoreModules.World.Permissions
         /// <param name="settingName"></param>
         /// <param name="defaultValue">The default value for this attribute</param>
         /// <returns>The parsed value</returns>
-        private static UserSet ParseUserSetConfigSetting(IConfig config, string settingName, UserSet defaultValue)
+        private static UserSet ParseUserSetConfigSetting(IConfigSource config, string settingName, UserSet defaultValue)
         {
             UserSet userSet = defaultValue;
-            
-            string rawSetting = config.GetString(settingName, defaultValue.ToString());
+
+            string rawSetting = Util.GetConfigVarFromSections<string>(config, settingName, 
+                new string[] {"Startup", "Permissions"}, defaultValue.ToString()); 
             
             // Temporary measure to allow 'gods' to be specified in config for consistency's sake.  In the long term
             // this should disappear.
@@ -787,8 +801,10 @@ namespace OpenSim.Region.CoreModules.World.Permissions
 
             // Friends with benefits should be able to edit the objects too
             if (IsFriendWithPerms(currentUser, objectOwner))
+            {
                 // Return immediately, so that the administrator can share objects with friends
                 return true;
+            }
         
             // Users should be able to edit what is over their land.
             ILandObject parcel = m_scene.LandChannel.GetLandObject(group.AbsolutePosition.X, group.AbsolutePosition.Y);
@@ -887,7 +903,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             return permission;
         }
     
-        protected bool GenericParcelOwnerPermission(UUID user, ILandObject parcel, ulong groupPowers)
+        protected bool GenericParcelOwnerPermission(UUID user, ILandObject parcel, ulong groupPowers, bool allowEstateManager)
         {
             if (parcel.LandData.OwnerID == user)
             {
@@ -902,7 +918,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
                 return true;
             }
     
-            if (IsEstateManager(user))
+            if (allowEstateManager && IsEstateManager(user))
             {
                 return true;
             }
@@ -929,7 +945,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             DebugPermissionInformation(MethodInfo.GetCurrentMethod().Name);
             if (m_bypassPermissions) return m_bypassPermissionsValue;
         
-            return GenericParcelOwnerPermission(user, parcel, (ulong)GroupPowers.LandRelease);
+            return GenericParcelOwnerPermission(user, parcel, (ulong)GroupPowers.LandRelease, false);
         }
 
         private bool CanReclaimParcel(UUID user, ILandObject parcel, Scene scene)
@@ -937,7 +953,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             DebugPermissionInformation(MethodInfo.GetCurrentMethod().Name);
             if (m_bypassPermissions) return m_bypassPermissionsValue;
 
-            return GenericParcelOwnerPermission(user, parcel, 0);
+            return GenericParcelOwnerPermission(user, parcel, 0,true);
         }
 
         private bool CanDeedParcel(UUID user, ILandObject parcel, Scene scene)
@@ -954,7 +970,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             if ((client.GetGroupPowers(parcel.LandData.GroupID) & (ulong)GroupPowers.LandDeed) == 0)
                 return false;
 
-            return GenericParcelOwnerPermission(user, parcel, (ulong)GroupPowers.LandDeed);
+            return GenericParcelOwnerPermission(user, parcel, (ulong)GroupPowers.LandDeed, false);
         }
 
         private bool CanDeedObject(UUID user, UUID group, Scene scene)
@@ -995,9 +1011,11 @@ namespace OpenSim.Region.CoreModules.World.Permissions
                 return false;
 
             if (part.OwnerID == owner)
-                return ((part.OwnerMask & PERM_COPY) != 0);
-
-            if (part.GroupID != UUID.Zero)
+            {
+                if ((part.OwnerMask & PERM_COPY) == 0)
+                    return false;
+            }
+            else if (part.GroupID != UUID.Zero)
             {
                 if ((part.OwnerID == part.GroupID) && ((owner != part.LastOwnerID) || ((part.GroupMask & PERM_TRANS) == 0)))
                     return false;
@@ -1039,7 +1057,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             DebugPermissionInformation(MethodInfo.GetCurrentMethod().Name);
             if (m_bypassPermissions) return m_bypassPermissionsValue;
 
-            return GenericParcelOwnerPermission(user, parcel, (ulong)p);
+            return GenericParcelOwnerPermission(user, parcel, (ulong)p, false);
         }
 
         /// <summary>
@@ -1438,27 +1456,33 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             DebugPermissionInformation(MethodInfo.GetCurrentMethod().Name);
             if (m_bypassPermissions) return m_bypassPermissionsValue;
 
-            bool permission = false;
+//            m_log.DebugFormat("[PERMISSIONS MODULE]: Checking rez object at {0} in {1}", objectPosition, m_scene.Name);
 
-            ILandObject land = m_scene.LandChannel.GetLandObject(objectPosition.X, objectPosition.Y);
-            if (land == null) return false;
+            ILandObject parcel = m_scene.LandChannel.GetLandObject(objectPosition.X, objectPosition.Y);
+            if (parcel == null)
+                return false;
 
-            if ((land.LandData.Flags & ((int)ParcelFlags.CreateObjects)) ==
-                (int)ParcelFlags.CreateObjects)
-                permission = true;
-
-            if (IsAdministrator(owner))
+            if ((parcel.LandData.Flags & (uint)ParcelFlags.CreateObjects) != 0)
             {
-                permission = true;
+                return true;
             }
-
-        // Powers are zero, because GroupPowers.AllowRez is not a precondition for rezzing objects
-            if (GenericParcelPermission(owner, objectPosition, 0))
+            else if ((owner == parcel.LandData.OwnerID) || IsAdministrator(owner))
             {
-                permission = true;
+                return true;
             }
-
-            return permission;
+            else if (((parcel.LandData.Flags & (uint)ParcelFlags.CreateGroupObjects) != 0)
+                && (parcel.LandData.GroupID != UUID.Zero) && IsGroupMember(parcel.LandData.GroupID, owner, 0))
+            {
+                return true;
+            }
+            else if (parcel.LandData.GroupID != UUID.Zero && IsGroupMember(parcel.LandData.GroupID, owner, (ulong)GroupPowers.AllowRez))
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
 
         private bool CanRunConsoleCommand(UUID user, Scene requestFromScene)
@@ -1483,7 +1507,7 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             DebugPermissionInformation(MethodInfo.GetCurrentMethod().Name);
             if (m_bypassPermissions) return m_bypassPermissionsValue;
 
-            return GenericParcelOwnerPermission(user, parcel, (ulong)GroupPowers.LandSetSale);
+            return GenericParcelOwnerPermission(user, parcel, (ulong)GroupPowers.LandSetSale, false);
         }
 
         private bool CanTakeObject(UUID objectID, UUID stealer, Scene scene)
@@ -1500,6 +1524,9 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             if (m_bypassPermissions) return m_bypassPermissionsValue;
 
             bool permission = GenericObjectPermission(userID, objectID, false);
+
+            SceneObjectGroup so = (SceneObjectGroup)m_scene.Entities[objectID];
+
             if (!permission)
             {
                 if (!m_scene.Entities.ContainsKey(objectID))
@@ -1513,31 +1540,23 @@ namespace OpenSim.Region.CoreModules.World.Permissions
                     return false;
                 }
 
-                SceneObjectGroup task = (SceneObjectGroup)m_scene.Entities[objectID];
                 // UUID taskOwner = null;
                 // Added this because at this point in time it wouldn't be wise for
                 // the administrator object permissions to take effect.
                 // UUID objectOwner = task.OwnerID;
 
-                if ((task.RootPart.EveryoneMask & PERM_COPY) != 0)
+                if ((so.RootPart.EveryoneMask & PERM_COPY) != 0)
                     permission = true;
+            }
 
-                if (task.OwnerID != userID)
-                {
-                    if ((task.GetEffectivePermissions() & (PERM_COPY | PERM_TRANS)) != (PERM_COPY | PERM_TRANS))
-                        permission = false;
-                }
-                else
-                {
-                    if ((task.GetEffectivePermissions() & PERM_COPY) != PERM_COPY)
-                        permission = false;
-                }
+            if (so.OwnerID != userID)
+            {
+                if ((so.GetEffectivePermissions() & (PERM_COPY | PERM_TRANS)) != (PERM_COPY | PERM_TRANS))
+                    permission = false;
             }
             else
             {
-                SceneObjectGroup task = (SceneObjectGroup)m_scene.Entities[objectID];
-
-                if ((task.GetEffectivePermissions() & (PERM_COPY | PERM_TRANS)) != (PERM_COPY | PERM_TRANS))
+                if ((so.GetEffectivePermissions() & PERM_COPY) != PERM_COPY)
                     permission = false;
             }
             
@@ -1556,10 +1575,10 @@ namespace OpenSim.Region.CoreModules.World.Permissions
             float X = position.X;
             float Y = position.Y;
 
-            if (X > ((int)Constants.RegionSize - 1))
-                X = ((int)Constants.RegionSize - 1);
-            if (Y > ((int)Constants.RegionSize - 1))
-                Y = ((int)Constants.RegionSize - 1);
+            if (X > ((int)m_scene.RegionInfo.RegionSizeX - 1))
+                X = ((int)m_scene.RegionInfo.RegionSizeX - 1);
+            if (Y > ((int)m_scene.RegionInfo.RegionSizeY - 1))
+                Y = ((int)m_scene.RegionInfo.RegionSizeY - 1);
             if (X < 0)
                 X = 0;
             if (Y < 0)

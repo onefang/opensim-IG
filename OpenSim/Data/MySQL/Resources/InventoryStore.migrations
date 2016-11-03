@@ -11,7 +11,7 @@ CREATE TABLE `inventoryfolders` (
   PRIMARY KEY  (`folderID`),
   KEY `owner` (`agentID`),
   KEY `parent` (`parentFolderID`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 CREATE TABLE `inventoryitems` (
   `inventoryID` varchar(36) NOT NULL default '',
@@ -36,7 +36,7 @@ CREATE TABLE `inventoryitems` (
   PRIMARY KEY  (`inventoryID`),
   KEY `owner` (`avatarID`),
   KEY `folder` (`parentFolderID`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 COMMIT;
 

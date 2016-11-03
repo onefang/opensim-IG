@@ -30,12 +30,13 @@ using System.Net;
 using System.Collections.Generic;
 using Nini.Config;
 using OpenMetaverse;
+using OpenSim.Data.Null;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
+
 using OpenSim.Framework.Console;
 using OpenSim.Framework.Servers;
 using OpenSim.Framework.Servers.HttpServer;
-using OpenSim.Region.Physics.Manager;
+using OpenSim.Region.PhysicsModules.SharedBase;
 using OpenSim.Region.Framework;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
@@ -47,8 +48,8 @@ using OpenSim.Region.CoreModules.ServiceConnectorsOut.Inventory;
 using OpenSim.Region.CoreModules.ServiceConnectorsOut.Grid;
 using OpenSim.Region.CoreModules.ServiceConnectorsOut.UserAccounts;
 using OpenSim.Region.CoreModules.ServiceConnectorsOut.Presence;
+using OpenSim.Region.PhysicsModule.BasicPhysics;
 using OpenSim.Services.Interfaces;
-using OpenSim.Tests.Common.Mock;
 using GridRegion = OpenSim.Services.Interfaces.GridRegion;
 
 namespace OpenSim.Tests.Common
@@ -63,9 +64,9 @@ namespace OpenSim.Tests.Common
         /// </summary>
         public SceneManager SceneManager { get; private set; }
 
+        public ISimulationDataService SimDataService { get; private set; }
+
         private AgentCircuitManager m_acm = new AgentCircuitManager();
-        private ISimulationDataService m_simDataService
-            = OpenSim.Server.Base.ServerUtils.LoadPlugin<ISimulationDataService>("OpenSim.Tests.Common.dll", null);
         private IEstateDataService m_estateDataService = null;
 
         private LocalAssetServicesConnector m_assetService;
@@ -76,6 +77,8 @@ namespace OpenSim.Tests.Common
         private LocalPresenceServicesConnector m_presenceService;
 
         private CoreAssetCache m_cache;
+
+        private PhysicsScene m_physicsScene;
 
         public SceneHelpers() : this(null) {}
 
@@ -96,6 +99,11 @@ namespace OpenSim.Tests.Common
             m_presenceService.PostInitialise();
 
             m_cache = cache;
+
+            m_physicsScene = StartPhysicsScene();
+
+            SimDataService 
+                = OpenSim.Server.Base.ServerUtils.LoadPlugin<ISimulationDataService>("OpenSim.Tests.Common.dll", null);
         }
 
         /// <summary>
@@ -115,6 +123,11 @@ namespace OpenSim.Tests.Common
             return SetupScene(name, id, x, y, new IniConfigSource());
         }
 
+        public TestScene SetupScene(string name, UUID id, uint x, uint y, IConfigSource configSource)
+        {
+            return SetupScene(name, id, x, y, Constants.RegionSize, Constants.RegionSize, configSource);
+        }
+
         /// <summary>
         /// Set up a scene.
         /// </summary>
@@ -122,10 +135,12 @@ namespace OpenSim.Tests.Common
         /// <param name="id">ID of the region</param>
         /// <param name="x">X co-ordinate of the region</param>
         /// <param name="y">Y co-ordinate of the region</param>
+        /// <param name="sizeX">X size of scene</param>
+        /// <param name="sizeY">Y size of scene</param>
         /// <param name="configSource"></param>
         /// <returns></returns>
         public TestScene SetupScene(
-            string name, UUID id, uint x, uint y, IConfigSource configSource)
+            string name, UUID id, uint x, uint y, uint sizeX, uint sizeY, IConfigSource configSource)
         {
             Console.WriteLine("Setting up test scene {0}", name);
 
@@ -135,15 +150,19 @@ namespace OpenSim.Tests.Common
             RegionInfo regInfo = new RegionInfo(x, y, new IPEndPoint(IPAddress.Loopback, 9000), "127.0.0.1");
             regInfo.RegionName = name;
             regInfo.RegionID = id;
-
-            SceneCommunicationService scs = new SceneCommunicationService();
+            regInfo.RegionSizeX = sizeX;
+            regInfo.RegionSizeY = sizeY;
 
             TestScene testScene = new TestScene(
-                regInfo, m_acm, scs, m_simDataService, m_estateDataService, false, configSource, null);
+                regInfo, m_acm, SimDataService, m_estateDataService, configSource, null);
 
             INonSharedRegionModule godsModule = new GodsModule();
             godsModule.Initialise(new IniConfigSource());
             godsModule.AddRegion(testScene);
+
+            // Add scene to physics
+            ((INonSharedRegionModule)m_physicsScene).AddRegion(testScene);
+            ((INonSharedRegionModule)m_physicsScene).RegionLoaded(testScene);
 
             // Add scene to services
             m_assetService.AddRegion(testScene);
@@ -182,12 +201,7 @@ namespace OpenSim.Tests.Common
             testScene.SetModuleInterfaces();
 
             testScene.LandChannel = new TestLandChannel(testScene);
-            testScene.LoadWorldMap();
-
-            PhysicsPluginManager physicsPluginManager = new PhysicsPluginManager();
-            physicsPluginManager.LoadPluginsFromAssembly("Physics/OpenSim.Region.Physics.BasicPhysicsPlugin.dll");
-            testScene.PhysicsScene
-                = physicsPluginManager.GetPhysicsScene("basicphysics", "ZeroMesher", new IniConfigSource(), "test");
+            testScene.LoadWorldMap();           
 
             testScene.RegionInfo.EstateSettings = new EstateSettings();
             testScene.LoginsEnabled = true;
@@ -297,6 +311,11 @@ namespace OpenSim.Tests.Common
         /// <param name="testScene"></param>
         private static LocalPresenceServicesConnector StartPresenceService()
         {
+            // Unfortunately, some services share data via statics, so we need to null every time to stop interference
+            // between tests.
+            // This is a massive non-obvious pita.
+            NullPresenceData.Instance = null;
+
             IConfigSource config = new IniConfigSource();
             config.AddConfig("Modules");
             config.AddConfig("PresenceService");
@@ -309,6 +328,19 @@ namespace OpenSim.Tests.Common
             presenceService.Initialise(config);
             
             return presenceService;
+        }
+
+        private static PhysicsScene StartPhysicsScene()
+        {
+            IConfigSource config = new IniConfigSource();
+            config.AddConfig("Startup");
+            config.Configs["Startup"].Set("physics", "basicphysics");
+
+            PhysicsScene pScene = new BasicScene();
+            INonSharedRegionModule mod = pScene as INonSharedRegionModule;
+            mod.Initialise(config);
+
+            return pScene;
         }
 
         /// <summary>
@@ -447,9 +479,6 @@ namespace OpenSim.Tests.Common
         /// Add a root agent where the details of the agent connection (apart from the id) are unimportant for the test
         /// </summary>
         /// <remarks>
-        /// This can be used for tests where there is only one region or where there are multiple non-neighbour regions
-        /// and teleport doesn't take place.
-        ///
         /// XXX: Use the version of this method that takes the UserAccount structure wherever possible - this will
         /// make the agent circuit data (e.g. first, lastname) consistent with the user account data.
         /// </remarks>
@@ -459,22 +488,6 @@ namespace OpenSim.Tests.Common
         public static ScenePresence AddScenePresence(Scene scene, UUID agentId)
         {
             return AddScenePresence(scene, GenerateAgentData(agentId));
-        }
-
-        /// <summary>
-        /// Add a root agent where the details of the agent connection (apart from the id) are unimportant for the test
-        /// </summary>
-        /// <remarks>
-        /// XXX: Use the version of this method that takes the UserAccount structure wherever possible - this will
-        /// make the agent circuit data (e.g. first, lastname) consistent with the user account data.
-        /// </remarks>
-        /// <param name="scene"></param>
-        /// <param name="agentId"></param>
-        /// <param name="sceneManager"></param>
-        /// <returns></returns>
-        public static ScenePresence AddScenePresence(Scene scene, UUID agentId, SceneManager sceneManager)
-        {
-            return AddScenePresence(scene, GenerateAgentData(agentId), sceneManager);
         }
 
         /// <summary>
@@ -508,7 +521,7 @@ namespace OpenSim.Tests.Common
         /// <returns></returns>
         public static ScenePresence AddScenePresence(Scene scene, AgentCircuitData agentData)
         {
-            return AddScenePresence(scene, agentData, null);
+            return AddScenePresence(scene, new TestClient(agentData, scene), agentData);
         }
 
         /// <summary>
@@ -528,9 +541,9 @@ namespace OpenSim.Tests.Common
         /// </remarks>
         /// <param name="scene"></param>
         /// <param name="agentData"></param>
-        /// <param name="sceneManager"></param>
         /// <returns></returns>
-        public static ScenePresence AddScenePresence(Scene scene, AgentCircuitData agentData, SceneManager sceneManager)
+        public static ScenePresence AddScenePresence(
+            Scene scene, IClientAPI client, AgentCircuitData agentData)
         {
             // We emulate the proper login sequence here by doing things in four stages
 
@@ -541,7 +554,7 @@ namespace OpenSim.Tests.Common
             lpsc.m_PresenceService.LoginAgent(agentData.AgentID.ToString(), agentData.SessionID, agentData.SecureSessionID);
 
             // Stages 1 & 2
-            ScenePresence sp = IntroduceClientToScene(scene, sceneManager, agentData, TeleportFlags.ViaLogin);
+            ScenePresence sp = IntroduceClientToScene(scene, client, agentData, TeleportFlags.ViaLogin);
 
             // Stage 3: Complete the entrance into the region.  This converts the child agent into a root agent.
             sp.CompleteMovement(sp.ControllingClient, true);
@@ -553,37 +566,37 @@ namespace OpenSim.Tests.Common
         /// Introduce an agent into the scene by adding a new client.
         /// </summary>
         /// <returns>The scene presence added</returns>
-        /// <param name='sceneManager'>
-        /// Scene manager.  Can be null if there is only one region in the test or multiple regions that are not
-        /// neighbours and where no teleporting takes place.
-        /// </param>
         /// <param name='scene'></param>
-        /// <param name='sceneManager></param>
+        /// <param name='testClient'></param>
         /// <param name='agentData'></param>
         /// <param name='tf'></param>
         private static ScenePresence IntroduceClientToScene(
-            Scene scene, SceneManager sceneManager, AgentCircuitData agentData, TeleportFlags tf)
+            Scene scene, IClientAPI client, AgentCircuitData agentData, TeleportFlags tf)
         {
             string reason;
 
             // Stage 1: tell the scene to expect a new user connection
-            if (!scene.NewUserConnection(agentData, (uint)tf, out reason))
+            if (!scene.NewUserConnection(agentData, (uint)tf, null, out reason))
                 Console.WriteLine("NewUserConnection failed: " + reason);
 
             // Stage 2: add the new client as a child agent to the scene
-            TestClient client = new TestClient(agentData, scene, sceneManager);
-            scene.AddNewClient(client, PresenceType.User);
+            scene.AddNewAgent(client, PresenceType.User);
 
-            return scene.GetScenePresence(agentData.AgentID);
+            return scene.GetScenePresence(client.AgentId);
         }
 
         public static ScenePresence AddChildScenePresence(Scene scene, UUID agentId)
         {
-            AgentCircuitData acd = GenerateAgentData(agentId);
+            return AddChildScenePresence(scene, GenerateAgentData(agentId));
+        }
+
+        public static ScenePresence AddChildScenePresence(Scene scene, AgentCircuitData acd)
+        {
             acd.child = true;
 
             // XXX: ViaLogin may not be correct for child agents
-            return IntroduceClientToScene(scene, null, acd, TeleportFlags.ViaLogin);
+            TestClient client = new TestClient(acd, scene);
+            return IntroduceClientToScene(scene, client, acd, TeleportFlags.ViaLogin);
         }
 
         /// <summary>
@@ -609,6 +622,32 @@ namespace OpenSim.Tests.Common
 
             //part.UpdatePrimFlags(false, false, true);
             //part.ObjectFlags |= (uint)PrimFlags.Phantom;
+
+            scene.AddNewSceneObject(so, true);
+
+            return so;
+        }
+
+        /// <summary>
+        /// Add a test object
+        /// </summary>
+        /// <param name="scene"></param>
+        /// <param name="parts">
+        /// The number of parts that should be in the scene object
+        /// </param>
+        /// <param name="ownerId"></param>
+        /// <param name="partNamePrefix">
+        /// The prefix to be given to part names.  This will be suffixed with "Part<part no>"
+        /// (e.g. mynamePart1 for the root part)
+        /// </param>
+        /// <param name="uuidTail">
+        /// The hexadecimal last part of the UUID for parts created.  A UUID of the form "00000000-0000-0000-0000-{0:XD12}"
+        /// will be given to the root part, and incremented for each part thereafter.
+        /// </param>
+        /// <returns></returns>
+        public static SceneObjectGroup AddSceneObject(Scene scene, int parts, UUID ownerId, string partNamePrefix, int uuidTail)
+        {
+            SceneObjectGroup so = CreateSceneObject(parts, ownerId, partNamePrefix, uuidTail);
 
             scene.AddNewSceneObject(so, false);
 

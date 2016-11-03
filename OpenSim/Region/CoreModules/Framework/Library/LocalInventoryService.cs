@@ -65,7 +65,7 @@ namespace OpenSim.Region.CoreModules.Framework.Library
         {
             InventoryFolderImpl folder = null;
             InventoryCollection inv = new InventoryCollection();
-            inv.UserID = m_Library.Owner;
+            inv.OwnerID = m_Library.Owner;
 
             if (folderID != m_Library.ID)
             {
@@ -86,6 +86,34 @@ namespace OpenSim.Region.CoreModules.Framework.Library
             m_log.DebugFormat("[LIBRARY MODULE]: Got content for folder {0}", folder.Name);
             return inv;
         }
+
+        public virtual InventoryCollection[] GetMultipleFoldersContent(UUID principalID, UUID[] folderIDs)
+        {
+            InventoryCollection[] invColl = new InventoryCollection[folderIDs.Length];
+            int i = 0;
+            foreach (UUID fid in folderIDs)
+            {
+                invColl[i++] = GetFolderContent(principalID, fid);
+            }
+
+            return invColl;
+        }
+
+        public virtual InventoryItemBase[] GetMultipleItems(UUID principalID, UUID[] itemIDs)
+        {
+            InventoryItemBase[] itemColl = new InventoryItemBase[itemIDs.Length];
+            int i = 0;
+            InventoryItemBase item = new InventoryItemBase();
+            item.Owner = principalID;
+            foreach (UUID fid in itemIDs)
+            {
+                item.ID = fid;
+                itemColl[i++] = GetItem(item);
+            }
+
+            return itemColl;
+        }
+
 
         /// <summary>
         /// Add a new folder to the user's inventory
@@ -142,28 +170,12 @@ namespace OpenSim.Region.CoreModules.Framework.Library
         public List<InventoryFolderBase> GetInventorySkeleton(UUID userId) { return null; }
 
         /// <summary>
-        /// Synchronous inventory fetch.
-        /// </summary>
-        /// <param name="userID"></param>
-        /// <returns></returns>
-        public InventoryCollection GetUserInventory(UUID userID) { return null; }
-
-        /// <summary>
-        /// Request the inventory for a user.  This is an asynchronous operation that will call the callback when the
-        /// inventory has been received
-        /// </summary>
-        /// <param name="userID"></param>
-        /// <param name="callback"></param>
-        public void GetUserInventory(UUID userID, InventoryReceiptCallback callback) { }
-
-
-        /// <summary>
         /// Gets the user folder for the given folder-type
         /// </summary>
         /// <param name="userID"></param>
         /// <param name="type"></param>
         /// <returns></returns>
-        public InventoryFolderBase GetFolderForType(UUID userID, AssetType type) { return null; }
+        public InventoryFolderBase GetFolderForType(UUID userID, FolderType type) { return null; }
 
 
         /// <summary>

@@ -43,12 +43,7 @@ namespace OpenSim.Data.MySQL
         private static readonly ILog m_log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        private const string m_waitTimeoutSelect = "select @@wait_timeout";
-
         private string m_connectionString;
-        private long m_waitTimeout;
-        private long m_waitTimeoutLeeway = 60 * TimeSpan.TicksPerSecond;
-//        private long m_lastConnectionUse;
 
         private FieldInfo[] m_Fields;
         private Dictionary<string, FieldInfo> m_FieldMap =
@@ -81,8 +76,6 @@ namespace OpenSim.Data.MySQL
                 m_log.Debug("Exception: password not found in connection string\n" + e.ToString());
             }
 
-            GetWaitTimeout();
-
             using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
             {
                 dbcon.Open();
@@ -108,33 +101,6 @@ namespace OpenSim.Data.MySQL
             get { return new List<string>(m_FieldMap.Keys).ToArray(); }
         }
 
-        protected void GetWaitTimeout()
-        {
-            using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
-            {
-                dbcon.Open();
-
-                using (MySqlCommand cmd = new MySqlCommand(m_waitTimeoutSelect, dbcon))
-                {
-                    using (MySqlDataReader dbReader = cmd.ExecuteReader(CommandBehavior.SingleRow))
-                    {
-                        if (dbReader.Read())
-                        {
-                            m_waitTimeout
-                                = Convert.ToInt32(dbReader["@@wait_timeout"]) *
-                                TimeSpan.TicksPerSecond + m_waitTimeoutLeeway;
-                        }
-                    }
-                }
-
-//                m_lastConnectionUse = DateTime.Now.Ticks;
-
-                m_log.DebugFormat(
-                    "[REGION DB]: Connection wait timeout {0} seconds",
-                    m_waitTimeout / TimeSpan.TicksPerSecond);
-            }
-        }
-
         public EstateSettings LoadEstateSettings(UUID regionID, bool create)
         {
             string sql = "select estate_settings." + String.Join(",estate_settings.", FieldList) +
@@ -145,7 +111,11 @@ namespace OpenSim.Data.MySQL
                 cmd.CommandText = sql;
                 cmd.Parameters.AddWithValue("?RegionID", regionID.ToString());
 
-                return DoLoad(cmd, regionID, create);
+                EstateSettings e = DoLoad(cmd, regionID, create);
+                if (!create && e.EstateID == 0) // Not found
+                    return null;
+
+                return e;
             }
         }
 
@@ -427,7 +397,10 @@ namespace OpenSim.Data.MySQL
                 cmd.CommandText = sql;
                 cmd.Parameters.AddWithValue("?EstateID", estateID);
 
-                return DoLoad(cmd, UUID.Zero, false);
+                EstateSettings e =  DoLoad(cmd, UUID.Zero, false);
+                if (e.EstateID != estateID)
+                    return null;
+                return e;
             }
         }
         

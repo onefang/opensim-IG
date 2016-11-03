@@ -25,13 +25,9 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+using OpenMetaverse;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
-using System.Xml;
-using log4net;
-using OpenMetaverse;
 
 namespace OpenSim.Framework
 {
@@ -39,12 +35,36 @@ namespace OpenSim.Framework
     {
 //        private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+        /// <summary>
+        /// Asset types used only in OpenSim.
+        /// To avoid clashing with the code numbers used in Second Life, use only negative numbers here.
+        /// </summary>
+        public enum OpenSimAssetType : sbyte
+        {
+            Material = -2
+        }
+
+        
         #region SL / file extension / content-type conversions
+
+        /// <summary>
+        /// Returns the Enum entry corresponding to the given code, regardless of whether it belongs
+        /// to the AssetType or OpenSimAssetType enums.
+        /// </summary>
+        public static object AssetTypeFromCode(sbyte assetType)
+        {
+            if (Enum.IsDefined(typeof(OpenMetaverse.AssetType), assetType))
+                return (OpenMetaverse.AssetType)assetType;
+            else if (Enum.IsDefined(typeof(OpenSimAssetType), assetType))
+                return (OpenSimAssetType)assetType;
+            else
+                return OpenMetaverse.AssetType.Unknown;
+        }
 
         private class TypeMapping
         {
             private sbyte assetType;
-            private InventoryType inventoryType;
+            private sbyte inventoryType;
             private string contentType;
             private string contentType2;
             private string extension;
@@ -56,15 +76,10 @@ namespace OpenSim.Framework
 
             public object AssetType
             {
-                get {
-                    if (Enum.IsDefined(typeof(OpenMetaverse.AssetType), assetType))
-                        return (OpenMetaverse.AssetType)assetType;
-                    else
-                        return OpenMetaverse.AssetType.Unknown;
-                }
+                get { return AssetTypeFromCode(assetType); }
             }
 
-            public InventoryType InventoryType
+            public sbyte InventoryType
             {
                 get { return inventoryType; }
             }
@@ -84,7 +99,7 @@ namespace OpenSim.Framework
                 get { return extension; }
             }
 
-            private TypeMapping(sbyte assetType, InventoryType inventoryType, string contentType, string contentType2, string extension)
+            private TypeMapping(sbyte assetType, sbyte inventoryType, string contentType, string contentType2, string extension)
             {
                 this.assetType = assetType;
                 this.inventoryType = inventoryType;
@@ -93,13 +108,28 @@ namespace OpenSim.Framework
                 this.extension = extension;
             }
 
-            public TypeMapping(AssetType assetType, InventoryType inventoryType, string contentType, string contentType2, string extension)
+            public TypeMapping(AssetType assetType, sbyte inventoryType, string contentType, string contentType2, string extension)
                 : this((sbyte)assetType, inventoryType, contentType, contentType2, extension)
             {
             }
 
+            public TypeMapping(AssetType assetType, InventoryType inventoryType, string contentType, string contentType2, string extension)
+                : this((sbyte)assetType, (sbyte)inventoryType, contentType, contentType2, extension)
+            {
+            }
+
             public TypeMapping(AssetType assetType, InventoryType inventoryType, string contentType, string extension)
-                : this((sbyte)assetType, inventoryType, contentType, null, extension)
+                : this((sbyte)assetType, (sbyte)inventoryType, contentType, null, extension)
+            {
+            }
+
+            public TypeMapping(AssetType assetType, FolderType inventoryType, string contentType, string extension)
+                : this((sbyte)assetType, (sbyte)inventoryType, contentType, null, extension)
+            {
+            }
+
+            public TypeMapping(OpenSimAssetType assetType, InventoryType inventoryType, string contentType, string extension)
+                : this((sbyte)assetType, (sbyte)inventoryType, contentType, null, extension)
             {
             }
         }
@@ -125,51 +155,65 @@ namespace OpenSim.Framework
             new TypeMapping(AssetType.Object, InventoryType.Object, "application/vnd.ll.primitive", "application/x-metaverse-primitive", "primitive"),
             new TypeMapping(AssetType.Object, InventoryType.Attachment, "application/vnd.ll.primitive", "application/x-metaverse-primitive", "primitive"),
             new TypeMapping(AssetType.Notecard, InventoryType.Notecard, "application/vnd.ll.notecard", "application/x-metaverse-notecard", "notecard"),
-            new TypeMapping(AssetType.Folder, InventoryType.Folder, "application/vnd.ll.folder", "folder"),
-            new TypeMapping(AssetType.RootFolder, InventoryType.RootCategory, "application/vnd.ll.rootfolder", "rootfolder"),
             new TypeMapping(AssetType.LSLText, InventoryType.LSL, "application/vnd.ll.lsltext", "application/x-metaverse-lsl", "lsl"),
             new TypeMapping(AssetType.LSLBytecode, InventoryType.LSL, "application/vnd.ll.lslbyte", "application/x-metaverse-lso", "lso"),
             new TypeMapping(AssetType.Bodypart, InventoryType.Wearable, "application/vnd.ll.bodypart", "application/x-metaverse-bodypart", "bodypart"),
-            new TypeMapping(AssetType.TrashFolder, InventoryType.Folder, "application/vnd.ll.trashfolder", "trashfolder"),
-            new TypeMapping(AssetType.SnapshotFolder, InventoryType.Folder, "application/vnd.ll.snapshotfolder", "snapshotfolder"),
-            new TypeMapping(AssetType.LostAndFoundFolder, InventoryType.Folder, "application/vnd.ll.lostandfoundfolder", "lostandfoundfolder"),
             new TypeMapping(AssetType.Animation, InventoryType.Animation, "application/vnd.ll.animation", "application/x-metaverse-animation", "animation"),
             new TypeMapping(AssetType.Gesture, InventoryType.Gesture, "application/vnd.ll.gesture", "application/x-metaverse-gesture", "gesture"),
             new TypeMapping(AssetType.Simstate, InventoryType.Snapshot, "application/x-metaverse-simstate", "simstate"),
-            new TypeMapping(AssetType.FavoriteFolder, InventoryType.Unknown, "application/vnd.ll.favoritefolder", "favoritefolder"),
             new TypeMapping(AssetType.Link, InventoryType.Unknown, "application/vnd.ll.link", "link"),
             new TypeMapping(AssetType.LinkFolder, InventoryType.Unknown, "application/vnd.ll.linkfolder", "linkfolder"),
-            new TypeMapping(AssetType.CurrentOutfitFolder, InventoryType.Unknown, "application/vnd.ll.currentoutfitfolder", "currentoutfitfolder"),
-            new TypeMapping(AssetType.OutfitFolder, InventoryType.Unknown, "application/vnd.ll.outfitfolder", "outfitfolder"),
-            new TypeMapping(AssetType.MyOutfitsFolder, InventoryType.Unknown, "application/vnd.ll.myoutfitsfolder", "myoutfitsfolder"),
-            new TypeMapping(AssetType.Mesh, InventoryType.Mesh, "application/vnd.ll.mesh", "llm")
+            new TypeMapping(AssetType.Mesh, InventoryType.Mesh, "application/vnd.ll.mesh", "llm"),
+
+            // The next few items are about inventory folders
+            new TypeMapping(AssetType.Folder, FolderType.None, "application/vnd.ll.folder", "folder"),
+            new TypeMapping(AssetType.Folder, FolderType.Root, "application/vnd.ll.rootfolder", "rootfolder"),
+            new TypeMapping(AssetType.Folder, FolderType.Trash, "application/vnd.ll.trashfolder", "trashfolder"),
+            new TypeMapping(AssetType.Folder, FolderType.Snapshot, "application/vnd.ll.snapshotfolder", "snapshotfolder"),
+            new TypeMapping(AssetType.Folder, FolderType.LostAndFound, "application/vnd.ll.lostandfoundfolder", "lostandfoundfolder"),
+            new TypeMapping(AssetType.Folder, FolderType.Favorites, "application/vnd.ll.favoritefolder", "favoritefolder"),
+            new TypeMapping(AssetType.Folder, FolderType.CurrentOutfit, "application/vnd.ll.currentoutfitfolder", "currentoutfitfolder"),
+            new TypeMapping(AssetType.Folder, FolderType.Outfit, "application/vnd.ll.outfitfolder", "outfitfolder"),
+            new TypeMapping(AssetType.Folder, FolderType.MyOutfits, "application/vnd.ll.myoutfitsfolder", "myoutfitsfolder"),
+            
+            // This next mappping is an asset to inventory item mapping.
+            // Note: LL stores folders as assets of type Folder = 8, and it has a corresponding InventoryType = 8
+            // OpenSim doesn't store folders as assets, so this mapping should only be used when parsing things from the viewer to the server 
+            new TypeMapping(AssetType.Folder, InventoryType.Folder, "application/vnd.ll.folder", "folder"),
+
+            // OpenSim specific
+            new TypeMapping(OpenSimAssetType.Material, InventoryType.Unknown, "application/llsd+xml", "material")
         };
 
         private static Dictionary<sbyte, string> asset2Content;
         private static Dictionary<sbyte, string> asset2Extension;
-        private static Dictionary<InventoryType, string> inventory2Content;
+        private static Dictionary<sbyte, string> inventory2Content;
         private static Dictionary<string, sbyte> content2Asset;
-        private static Dictionary<string, InventoryType> content2Inventory;
+        private static Dictionary<string, sbyte> content2Inventory;
 
         static SLUtil()
         {
             asset2Content = new Dictionary<sbyte, string>();
             asset2Extension = new Dictionary<sbyte, string>();
-            inventory2Content = new Dictionary<InventoryType, string>();
+            inventory2Content = new Dictionary<sbyte, string>();
             content2Asset = new Dictionary<string, sbyte>();
-            content2Inventory = new Dictionary<string, InventoryType>();
+            content2Inventory = new Dictionary<string, sbyte>();
             
             foreach (TypeMapping mapping in MAPPINGS)
             {
                 sbyte assetType = mapping.AssetTypeCode;
                 if (!asset2Content.ContainsKey(assetType))
                     asset2Content.Add(assetType, mapping.ContentType);
+
                 if (!asset2Extension.ContainsKey(assetType))
                     asset2Extension.Add(assetType, mapping.Extension);
+
                 if (!inventory2Content.ContainsKey(mapping.InventoryType))
                     inventory2Content.Add(mapping.InventoryType, mapping.ContentType);
+
                 if (!content2Asset.ContainsKey(mapping.ContentType))
                     content2Asset.Add(mapping.ContentType, assetType);
+
                 if (!content2Inventory.ContainsKey(mapping.ContentType))
                     content2Inventory.Add(mapping.ContentType, mapping.InventoryType);
 
@@ -194,8 +238,8 @@ namespace OpenSim.Framework
         public static string SLInvTypeToContentType(int invType)
         {
             string contentType;
-            if (!inventory2Content.TryGetValue((InventoryType)invType, out contentType))
-                contentType = inventory2Content[InventoryType.Unknown];
+            if (!inventory2Content.TryGetValue((sbyte)invType, out contentType))
+                contentType = inventory2Content[(sbyte)InventoryType.Unknown];
             return contentType;
         }
 
@@ -209,9 +253,9 @@ namespace OpenSim.Framework
 
         public static sbyte ContentTypeToSLInvType(string contentType)
         {
-            InventoryType invType;
+            sbyte invType;
             if (!content2Inventory.TryGetValue(contentType, out invType))
-                invType = InventoryType.Unknown;
+                invType = (sbyte)InventoryType.Unknown;
             return (sbyte)invType;
         }
 
@@ -225,106 +269,270 @@ namespace OpenSim.Framework
 
         #endregion SL / file extension / content-type conversions
 
+        private class NotecardReader
+        {
+            private string rawInput;
+            private int lineNumber;
+
+            public int LineNumber
+            {
+                get
+                {
+                    return lineNumber;
+                }
+            }
+
+            public NotecardReader(string _rawInput)
+            {
+                rawInput = (string)_rawInput.Clone();
+                lineNumber = 0;
+            }
+
+            public string getLine()
+            {
+                if(rawInput.Length == 0)
+                {
+                    throw new NotANotecardFormatException(lineNumber + 1);
+                }
+
+                int pos = rawInput.IndexOf('\n');
+                if(pos < 0)
+                {
+                    pos = rawInput.Length;
+                }
+
+                /* cut line from rest */
+                ++lineNumber;
+                string line = rawInput.Substring(0, pos);
+                if (pos + 1 >= rawInput.Length)
+                {
+                    rawInput = string.Empty;
+                }
+                else
+                {
+                    rawInput = rawInput.Substring(pos + 1);
+                }
+                /* clean up line from double spaces and tabs */
+                line = line.Replace("\t", " ");
+                while(line.IndexOf("  ") >= 0)
+                {
+                    line = line.Replace("  ", " ");
+                }
+                return line.Replace("\r", "").Trim();
+            }
+
+            public string getBlock(int length)
+            {
+                /* cut line from rest */
+                if(length > rawInput.Length)
+                {
+                    throw new NotANotecardFormatException(lineNumber);
+                }
+                string line = rawInput.Substring(0, length);
+                rawInput = rawInput.Substring(length);
+                return line;
+            }
+        }
+
+        public class NotANotecardFormatException : Exception
+        {
+            public int lineNumber;
+            public NotANotecardFormatException(int _lineNumber)
+                : base()
+            {
+               lineNumber = _lineNumber;
+            }
+        }
+
+        private static void skipSection(NotecardReader reader)
+        {
+            if (reader.getLine() != "{")
+                throw new NotANotecardFormatException(reader.LineNumber);
+
+            string line;
+            while ((line = reader.getLine()) != "}")
+            {
+                if(line.IndexOf('{')>=0)
+                {
+                    throw new NotANotecardFormatException(reader.LineNumber);
+                }
+            }
+        }
+
+        private static void skipInventoryItem(NotecardReader reader)
+        {
+            if (reader.getLine() != "{")
+                throw new NotANotecardFormatException(reader.LineNumber);
+
+            string line;
+            while((line = reader.getLine()) != "}")
+            {
+                string[] data = line.Split(' ');
+                if(data.Length == 0)
+                {
+                    continue;
+                }
+                if(data[0] == "permissions")
+                {
+                    skipSection(reader);
+                }
+                else if(data[0] == "sale_info")
+                {
+                    skipSection(reader);
+                }
+                else if (line.IndexOf('{') >= 0)
+                {
+                    throw new NotANotecardFormatException(reader.LineNumber);
+                }
+            }
+        }
+
+        private static void skipInventoryItems(NotecardReader reader)
+        {
+            if(reader.getLine() != "{")
+            {
+                throw new NotANotecardFormatException(reader.LineNumber);
+            }
+
+            string line;
+            while((line = reader.getLine()) != "}")
+            {
+                string[] data = line.Split(' ');
+                if(data.Length == 0)
+                {
+                    continue;
+                }
+
+                if(data[0] == "inv_item")
+                {
+                    skipInventoryItem(reader);
+                } 
+                else if (line.IndexOf('{') >= 0)
+                {
+                    throw new NotANotecardFormatException(reader.LineNumber);
+                }
+
+            }
+        }
+
+        private static void skipInventory(NotecardReader reader)
+        {
+            if (reader.getLine() != "{")
+                throw new NotANotecardFormatException(reader.LineNumber);
+
+            string line;
+            while((line = reader.getLine()) != "}")
+            {
+                string[] data = line.Split(' ');
+                if(data[0] == "count")
+                {
+                    int count = Int32.Parse(data[1]);
+                    for(int i = 0; i < count; ++i)
+                    {
+                        skipInventoryItems(reader);
+                    }
+                }
+                else if (line.IndexOf('{') >= 0)
+                {
+                    throw new NotANotecardFormatException(reader.LineNumber);
+                }
+            }
+        }
+
+        private static string readNotecardText(NotecardReader reader)
+        {
+            if (reader.getLine() != "{")
+                throw new NotANotecardFormatException(reader.LineNumber);
+
+            string notecardString = string.Empty;
+            string line;
+            while((line = reader.getLine()) != "}")
+            {
+                string[] data = line.Split(' ');
+                if (data.Length == 0)
+                {
+                    continue;
+                }
+
+                if (data[0] == "LLEmbeddedItems")
+                {
+                    skipInventory(reader);
+                }
+                else if(data[0] == "Text" && data.Length == 3)
+                {
+                    int length = Int32.Parse(data[2]);
+                    notecardString = reader.getBlock(length);
+                } 
+                else if (line.IndexOf('{') >= 0)
+                {
+                    throw new NotANotecardFormatException(reader.LineNumber);
+                }
+
+            }
+            return notecardString;
+        }
+
+        private static string readNotecard(byte[] rawInput)
+        {
+            string rawIntermedInput = string.Empty;
+
+            /* make up a Raw Encoding here */
+            foreach(byte c in rawInput)
+            {
+                char d = (char)c;
+                rawIntermedInput += d;
+            }
+
+            NotecardReader reader = new NotecardReader(rawIntermedInput);
+            string line;
+            try
+            {
+                line = reader.getLine();
+            }
+            catch(Exception)
+            {
+                return System.Text.Encoding.UTF8.GetString(rawInput);
+            }
+            string[] versioninfo = line.Split(' ');
+            if(versioninfo.Length < 3)
+            {
+                return System.Text.Encoding.UTF8.GetString(rawInput);
+            }
+            else if(versioninfo[0] != "Linden" || versioninfo[1] != "text")
+            {
+                return System.Text.Encoding.UTF8.GetString(rawInput);
+            }
+            else
+            {
+                /* now we actually decode the Encoding, before we needed it in raw */
+                string o = readNotecardText(reader);
+                byte[] a = new byte[o.Length];
+                for(int i = 0; i < o.Length; ++i)
+                {
+                    a[i] = (byte)o[i];
+                }
+                return System.Text.Encoding.UTF8.GetString(a);
+            }
+        }
+
         /// <summary>
         /// Parse a notecard in Linden format to a string of ordinary text.
         /// </summary>
         /// <param name="rawInput"></param>
         /// <returns></returns>
-        public static string ParseNotecardToString(string rawInput)
+        public static string ParseNotecardToString(byte[] rawInput)
         {
-            string[] output = ParseNotecardToList(rawInput).ToArray();
-
-//            foreach (string line in output)
-//                m_log.DebugFormat("[PARSE NOTECARD]: ParseNotecardToString got line {0}", line);
-            
-            return string.Join("\n", output);
+            return readNotecard(rawInput);
         }
-                
+
         /// <summary>
         /// Parse a notecard in Linden format to a list of ordinary lines.
         /// </summary>
         /// <param name="rawInput"></param>
         /// <returns></returns>
-        public static List<string> ParseNotecardToList(string rawInput)
+        public static string[] ParseNotecardToArray(byte[] rawInput)
         {
-            string[] input = rawInput.Replace("\r", "").Split('\n');
-            int idx = 0;
-            int level = 0;
-            List<string> output = new List<string>();
-            string[] words;
-
-            while (idx < input.Length)
-            {
-                if (input[idx] == "{")
-                {
-                    level++;
-                    idx++;
-                    continue;
-                }
-
-                if (input[idx]== "}")
-                {
-                    level--;
-                    idx++;
-                    continue;
-                }
-
-                switch (level)
-                {
-                case 0:
-                    words = input[idx].Split(' '); // Linden text ver
-                    // Notecards are created *really* empty. Treat that as "no text" (just like after saving an empty notecard)
-                    if (words.Length < 3)
-                        return output;
-
-                    int version = int.Parse(words[3]);
-                    if (version != 2)
-                        return output;
-                    break;
-                case 1:
-                    words = input[idx].Split(' ');
-                    if (words[0] == "LLEmbeddedItems")
-                        break;
-                    if (words[0] == "Text")
-                    {
-                        int len = int.Parse(words[2]);
-                        idx++;
-
-                        int count = -1;
-
-                        while (count < len && idx < input.Length)
-                        {
-                            // int l = input[idx].Length;
-                            string ln = input[idx];
-
-                            int need = len-count-1;
-                            if (ln.Length > need)
-                                ln = ln.Substring(0, need);
-
-//                            m_log.DebugFormat("[PARSE NOTECARD]: Adding line {0}", ln);
-                            output.Add(ln);
-                            count += ln.Length + 1;
-                            idx++;
-                        }
-
-                        return output;
-                    }
-                    break;
-                case 2:
-                    words = input[idx].Split(' '); // count
-                    if (words[0] == "count")
-                    {
-                        int c = int.Parse(words[1]);
-                        if (c > 0)
-                            return output;
-                        break;
-                    }
-                    break;
-                }
-                idx++;
-            }
-            
-            return output;
+            return readNotecard(rawInput).Replace("\r", "").Split('\n');
         }
     }
 }

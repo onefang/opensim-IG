@@ -41,6 +41,7 @@ using OpenSim.Services.Interfaces;
 using OpenSim.Services.UserAccountService;
 using OpenSim.Framework;
 using OpenSim.Framework.Servers.HttpServer;
+using OpenSim.Framework.ServiceAuth;
 using OpenMetaverse;
 
 namespace OpenSim.Server.Handlers.UserAccounts
@@ -54,10 +55,10 @@ namespace OpenSim.Server.Handlers.UserAccounts
         private bool m_AllowSetAccount = false;
 
         public UserAccountServerPostHandler(IUserAccountService service)
-            : this(service, null) {}
+            : this(service, null, null) {}
 
-        public UserAccountServerPostHandler(IUserAccountService service, IConfig config) :
-                base("POST", "/accounts")
+        public UserAccountServerPostHandler(IUserAccountService service, IConfig config, IServiceAuth auth) :
+                base("POST", "/accounts", auth)
         {
             m_UserAccountService = service;
 
@@ -68,7 +69,7 @@ namespace OpenSim.Server.Handlers.UserAccounts
             }
         }
 
-        public override byte[] Handle(string path, Stream requestData,
+        protected override byte[] ProcessRequest(string path, Stream requestData,
                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
             StreamReader sr = new StreamReader(requestData);
@@ -256,8 +257,7 @@ namespace OpenSim.Server.Handlers.UserAccounts
 
         byte[] CreateUser(Dictionary<string, object> request)
         {
-            if (!
-                request.ContainsKey("FirstName")
+            if (! request.ContainsKey("FirstName")
                     && request.ContainsKey("LastName")
                     && request.ContainsKey("Password"))
                 return FailureResult();
@@ -314,7 +314,7 @@ namespace OpenSim.Server.Handlers.UserAccounts
 
             rootElement.AppendChild(result);
 
-            return DocToBytes(doc);
+            return Util.DocToBytes(doc);
         }
 
         private byte[] FailureResult()
@@ -336,18 +336,7 @@ namespace OpenSim.Server.Handlers.UserAccounts
 
             rootElement.AppendChild(result);
 
-            return DocToBytes(doc);
-        }
-
-        private byte[] DocToBytes(XmlDocument doc)
-        {
-            MemoryStream ms = new MemoryStream();
-            XmlTextWriter xw = new XmlTextWriter(ms, null);
-            xw.Formatting = Formatting.Indented;
-            doc.WriteTo(xw);
-            xw.Flush();
-
-            return ms.ToArray();
+            return Util.DocToBytes(doc);
         }
 
         private byte[] ResultToBytes(Dictionary<string, object> result)

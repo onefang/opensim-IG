@@ -33,6 +33,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using OpenSim.Framework;
+using OpenSim.Framework.Monitoring;
 using OpenSim.Data;
 using OpenSim.Server.Base;
 using OpenSim.Region.Framework.Interfaces;
@@ -164,22 +165,12 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Inventory
             return m_InventoryService.GetInventorySkeleton(userId);
         }
 
-        public InventoryCollection GetUserInventory(UUID id)
-        {
-            return m_InventoryService.GetUserInventory(id);
-        }
-
-        public void GetUserInventory(UUID userID, InventoryReceiptCallback callback)
-        {
-            m_InventoryService.GetUserInventory(userID, callback);
-        }
-
         public InventoryFolderBase GetRootFolder(UUID userID)
         {
             return m_InventoryService.GetRootFolder(userID);
         }
 
-        public InventoryFolderBase GetFolderForType(UUID userID, AssetType type)
+        public InventoryFolderBase GetFolderForType(UUID userID, FolderType type)
         {
             return m_InventoryService.GetFolderForType(userID, type);
         }
@@ -193,14 +184,28 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Inventory
                 // Protect ourselves against the caller subsequently modifying the items list
                 List<InventoryItemBase> items = new List<InventoryItemBase>(invCol.Items);
 
-                Util.FireAndForget(delegate
+                WorkManager.RunInThread(delegate
                 {
                     foreach (InventoryItemBase item in items)
-                        UserManager.AddUser(item.CreatorIdAsUuid, item.CreatorData);
-                });
+                        if (!string.IsNullOrEmpty(item.CreatorData))
+                            UserManager.AddUser(item.CreatorIdAsUuid, item.CreatorData);
+                }, null, string.Format("GetFolderContent (user {0}, folder {1})", userID, folderID));
             }
 
             return invCol;
+        }
+
+        public virtual InventoryCollection[] GetMultipleFoldersContent(UUID principalID, UUID[] folderIDs)
+        {
+            InventoryCollection[] invColl = new InventoryCollection[folderIDs.Length];
+            int i = 0;
+            foreach (UUID fid in folderIDs)
+            {
+                invColl[i++] = GetFolderContent(principalID, fid);
+            }
+
+            return invColl;
+
         }
 
         public List<InventoryItemBase> GetFolderItems(UUID userID, UUID folderID)
@@ -300,6 +305,11 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Inventory
 //                    "[LOCAL INVENTORY SERVICES CONNECTOR]: Could not find item with id {0}", requestedItemId);
 
             return item;
+        }
+
+        public InventoryItemBase[] GetMultipleItems(UUID userID, UUID[] itemIDs)
+        {
+            return m_InventoryService.GetMultipleItems(userID, itemIDs);
         }
 
         public InventoryFolderBase GetFolder(InventoryFolderBase folder)

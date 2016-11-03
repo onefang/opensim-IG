@@ -76,10 +76,10 @@ namespace OpenSim.Services.HypergridService
             if (m_UserAccountService == null)
                 throw new Exception(String.Format("Unable to create UserAccountService from {0}", userAccountsDll));
 
-            // legacy configuration [obsolete]
-            m_HomeURL = assetConfig.GetString("ProfileServerURI", string.Empty);
-            // Preferred
-            m_HomeURL = assetConfig.GetString("HomeURI", m_HomeURL);
+            m_HomeURL = Util.GetConfigVarFromSections<string>(config, "HomeURI",
+                new string[] { "Startup", "Hypergrid", configName }, string.Empty);
+            if (m_HomeURL == string.Empty)
+                throw new Exception("[HGAssetService] No HomeURI specified");
 
             m_Cache = UserAccountCache.CreateUserAccountCache(m_UserAccountService);
 
@@ -100,7 +100,7 @@ namespace OpenSim.Services.HypergridService
                 return null;
 
             if (asset.Metadata.Type == (sbyte)AssetType.Object)
-                asset.Data = AdjustIdentifiers(asset.Data); ;
+                asset.Data = AdjustIdentifiers(asset.Data);
 
             AdjustIdentifiers(asset.Metadata);
 
@@ -129,6 +129,14 @@ namespace OpenSim.Services.HypergridService
             if (!m_AssetPerms.AllowedExport(asset.Type))
                 return null;
 
+            // Deal with bug introduced in Oct. 20 (1eb3e6cc43e2a7b4053bc1185c7c88e22356c5e8)
+            // Fix bad assets before sending them elsewhere
+            if (asset.Type == (int)AssetType.Object && asset.Data != null)
+            {
+                string xml = ExternalRepresentationUtils.SanitizeXml(Utils.BytesToString(asset.Data));
+                asset.Data = Utils.StringToBytes(xml);
+            }
+
             return asset.Data;
         }
 
@@ -138,6 +146,14 @@ namespace OpenSim.Services.HypergridService
         {
             if (!m_AssetPerms.AllowedImport(asset.Type))
                 return string.Empty;
+
+            // Deal with bug introduced in Oct. 20 (1eb3e6cc43e2a7b4053bc1185c7c88e22356c5e8)
+            // Fix bad assets before storing on this server
+            if (asset.Type == (int)AssetType.Object && asset.Data != null)
+            {
+                string xml = ExternalRepresentationUtils.SanitizeXml(Utils.BytesToString(asset.Data));
+                asset.Data = Utils.StringToBytes(xml);
+            }
 
             return base.Store(asset);
         }
@@ -160,10 +176,16 @@ namespace OpenSim.Services.HypergridService
                 meta.CreatorID = meta.CreatorID + ";" + m_HomeURL + "/" + creator.FirstName + " " + creator.LastName;
         }
 
+        // Only for Object
         protected byte[] AdjustIdentifiers(byte[] data)
         {
             string xml = Utils.BytesToString(data);
-            return Utils.StringToBytes(ExternalRepresentationUtils.RewriteSOP(xml, m_HomeURL, m_Cache, UUID.Zero));
+
+            // Deal with bug introduced in Oct. 20 (1eb3e6cc43e2a7b4053bc1185c7c88e22356c5e8)
+            // Fix bad assets before sending them elsewhere
+            xml = ExternalRepresentationUtils.SanitizeXml(xml);
+
+            return Utils.StringToBytes(ExternalRepresentationUtils.RewriteSOP(xml, "HGAssetService", m_HomeURL, m_Cache, UUID.Zero));
         }
 
     }

@@ -64,7 +64,9 @@ namespace OpenSim.Framework
 
     public delegate void NetworkStats(int inPackets, int outPackets, int unAckedBytes);
 
-    public delegate void SetAppearance(IClientAPI remoteClient, Primitive.TextureEntry textureEntry, byte[] visualParams);
+    public delegate void CachedTextureRequest(IClientAPI remoteClient, int serial, List<CachedTextureRequestArg> cachedTextureRequest);
+
+    public delegate void SetAppearance(IClientAPI remoteClient, Primitive.TextureEntry textureEntry, byte[] visualParams, Vector3 AvSize, WearableCacheItem[] CacheItems);
 
     public delegate void StartAnim(IClientAPI remoteClient, UUID animID);
 
@@ -124,7 +126,7 @@ namespace OpenSim.Framework
     public delegate void ObjectDrop(uint localID, IClientAPI remoteClient);
 
     public delegate void UpdatePrimFlags(
-        uint localID, bool UsePhysics, bool IsTemporary, bool IsPhantom, IClientAPI remoteClient);
+        uint localID, bool UsePhysics, bool IsTemporary, bool IsPhantom, ExtraPhysicsData PhysData, IClientAPI remoteClient);
 
     public delegate void UpdatePrimTexture(uint localID, byte[] texture, IClientAPI remoteClient);
 
@@ -313,7 +315,7 @@ namespace OpenSim.Framework
     public delegate void ObjectPermissions(
         IClientAPI controller, UUID agentID, UUID sessionID, byte field, uint localId, uint mask, byte set);
 
-    public delegate void EconomyDataRequest(UUID agentID);
+    public delegate void EconomyDataRequest(IClientAPI client);
 
     public delegate void ObjectIncludeInSearch(IClientAPI remoteClient, bool IncludeInSearch, uint localID);
 
@@ -780,6 +782,7 @@ namespace OpenSim.Framework
         event EstateChangeInfo OnEstateChangeInfo;
         event EstateManageTelehub OnEstateManageTelehub;
         // [Obsolete("LLClientView Specific.")]
+        event CachedTextureRequest OnCachedTextureRequest;
         event SetAppearance OnSetAppearance;
         // [Obsolete("LLClientView Specific - Replace and rename OnAvatarUpdate. Difference from SetAppearance?")]
         event AvatarNowWearing OnAvatarNowWearing;
@@ -821,6 +824,8 @@ namespace OpenSim.Framework
         /// Listeners must not retain a reference to AgentUpdateArgs since this object may be reused for subsequent AgentUpdates.
         /// </remarks>
         event UpdateAgent OnAgentUpdate;
+
+        event UpdateAgent OnAgentCameraUpdate;
 
         event AgentRequestSit OnAgentRequestSit;
         event AgentSit OnAgentSit;
@@ -1087,14 +1092,15 @@ namespace OpenSim.Framework
         /// <param name="textureEntry"></param>
         void SendAppearance(UUID agentID, byte[] visualParams, byte[] textureEntry);
 
+        void SendCachedTextureResponse(ISceneEntity avatar, int serial, List<CachedTextureResponseArg> cachedTextures);
+
         void SendStartPingCheck(byte seq);
 
         /// <summary>
         /// Tell the client that an object has been deleted
         /// </summary>
-        /// <param name="regionHandle"></param>
         /// <param name="localID"></param>
-        void SendKillObject(ulong regionHandle, List<uint> localID);
+        void SendKillObject(List<uint> localID);
 
         void SendAnimations(UUID[] animID, int[] seqs, UUID sourceAgentId, UUID[] objectIDs);
         void SendRegionHandshake(RegionInfo regionInfo, RegionHandshakeArgs args);
@@ -1116,8 +1122,8 @@ namespace OpenSim.Framework
 
         void SendInstantMessage(GridInstantMessage im);
 
-        void SendGenericMessage(string method, List<string> message);
-        void SendGenericMessage(string method, List<byte[]> message);
+        void SendGenericMessage(string method, UUID invoice, List<string> message);
+        void SendGenericMessage(string method, UUID invoice, List<byte[]> message);
 
         void SendLayerData(float[] map);
         void SendLayerData(int px, int py, float[] map);
@@ -1155,7 +1161,8 @@ namespace OpenSim.Framework
         void SendTeleportStart(uint flags);
         void SendTeleportProgress(uint flags, string message);
 
-        void SendMoneyBalance(UUID transaction, bool success, byte[] description, int balance);
+        void SendMoneyBalance(UUID transaction, bool success, byte[] description, int balance, int transactionType, UUID sourceID, bool sourceIsGroup, UUID destID, bool destIsGroup, int amount, string item);
+
         void SendPayPrice(UUID objectID, int[] payPrice);
 
         void SendCoarseLocationUpdate(List<UUID> users, List<Vector3> CoarseLocations);
@@ -1249,8 +1256,6 @@ namespace OpenSim.Framework
         /// <param name="buttonlabels"></param>
         void SendDialog(string objectname, UUID objectID, UUID ownerID, string ownerFirstName, string ownerLastName, string msg, UUID textureID, int ch,
                         string[] buttonlabels);
-
-        bool AddMoney(int debit);
 
         /// <summary>
         /// Update the client as to where the sun is currently located.
@@ -1355,6 +1360,8 @@ namespace OpenSim.Framework
         void SendObjectPropertiesFamilyData(ISceneEntity Entity, uint RequestFlags);
 
         void SendObjectPropertiesReply(ISceneEntity Entity);
+
+        void SendPartPhysicsProprieties(ISceneEntity Entity);
 
         void SendAgentOffline(UUID[] agentIDs);
 
@@ -1469,7 +1476,7 @@ namespace OpenSim.Framework
         void SendChangeUserRights(UUID agentID, UUID friendID, int rights);
         void SendTextBoxRequest(string message, int chatChannel, string objectname, UUID ownerID, string ownerFirstName, string ownerLastName, UUID objectId);
 
-        void StopFlying(ISceneEntity presence);
+        void SendAgentTerseUpdate(ISceneEntity presence);
 
         void SendPlacesReply(UUID queryID, UUID transactionID, PlacesReplyData[] data);
     }

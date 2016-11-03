@@ -37,7 +37,6 @@ using NUnit.Framework;
 using OpenMetaverse;
 using OpenMetaverse.Assets;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.CoreModules.Avatar.Inventory.Archiver;
@@ -45,7 +44,6 @@ using OpenSim.Region.CoreModules.World.Serialiser;
 using OpenSim.Region.CoreModules.ServiceConnectorsOut.Simulation;
 using OpenSim.Services.Interfaces;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.Framework.Tests
 {
@@ -64,7 +62,7 @@ namespace OpenSim.Region.Framework.Tests
             Scene scene = new SceneHelpers().SetupScene();
             UserAccount user1 = UserAccountHelpers.CreateUserWithInventory(scene, TestHelpers.ParseTail(1001));
 
-            UserInventoryHelpers.CreateInventoryFolder(scene.InventoryService, user1.PrincipalID, foldersName);
+            UserInventoryHelpers.CreateInventoryFolder(scene.InventoryService, user1.PrincipalID, foldersName, false);
 
             List<InventoryFolderBase> oneFolder
                 = UserInventoryHelpers.GetInventoryFolders(scene.InventoryService, user1.PrincipalID, foldersName);
@@ -73,7 +71,7 @@ namespace OpenSim.Region.Framework.Tests
             InventoryFolderBase firstRetrievedFolder = oneFolder[0];
             Assert.That(firstRetrievedFolder.Name, Is.EqualTo(foldersName));
 
-            UserInventoryHelpers.CreateInventoryFolder(scene.InventoryService, user1.PrincipalID, foldersName);
+            UserInventoryHelpers.CreateInventoryFolder(scene.InventoryService, user1.PrincipalID, foldersName, false);
 
             List<InventoryFolderBase> twoFolders
                 = UserInventoryHelpers.GetInventoryFolders(scene.InventoryService, user1.PrincipalID, foldersName);
@@ -95,7 +93,9 @@ namespace OpenSim.Region.Framework.Tests
             UserAccount user2 = UserAccountHelpers.CreateUserWithInventory(scene, TestHelpers.ParseTail(1002));
             InventoryItemBase item1 = UserInventoryHelpers.CreateInventoryItem(scene, "item1", user1.PrincipalID);
 
-            scene.GiveInventoryItem(user2.PrincipalID, user1.PrincipalID, item1.ID);
+            string message;
+
+            scene.GiveInventoryItem(user2.PrincipalID, user1.PrincipalID, item1.ID, out message);
 
             InventoryItemBase retrievedItem1
                 = UserInventoryHelpers.GetInventoryItem(scene.InventoryService, user2.PrincipalID, "Notecards/item1");
@@ -103,7 +103,7 @@ namespace OpenSim.Region.Framework.Tests
             Assert.That(retrievedItem1, Is.Not.Null);
 
             // Try giving back the freshly received item
-            scene.GiveInventoryItem(user1.PrincipalID, user2.PrincipalID, retrievedItem1.ID);
+            scene.GiveInventoryItem(user1.PrincipalID, user2.PrincipalID, retrievedItem1.ID, out message);
 
             List<InventoryItemBase> reretrievedItems
                 = UserInventoryHelpers.GetInventoryItems(scene.InventoryService, user1.PrincipalID, "Notecards/item1");
@@ -121,9 +121,9 @@ namespace OpenSim.Region.Framework.Tests
             UserAccount user1 = UserAccountHelpers.CreateUserWithInventory(scene, TestHelpers.ParseTail(1001));
             UserAccount user2 = UserAccountHelpers.CreateUserWithInventory(scene, TestHelpers.ParseTail(1002));
             InventoryFolderBase folder1
-                = UserInventoryHelpers.CreateInventoryFolder(scene.InventoryService, user1.PrincipalID, "folder1");
+                = UserInventoryHelpers.CreateInventoryFolder(scene.InventoryService, user1.PrincipalID, "folder1", false);
 
-            scene.GiveInventoryFolder(user2.PrincipalID, user1.PrincipalID, folder1.ID, UUID.Zero);
+            scene.GiveInventoryFolder(null, user2.PrincipalID, user1.PrincipalID, folder1.ID, UUID.Zero);
 
             InventoryFolderBase retrievedFolder1
                 = UserInventoryHelpers.GetInventoryFolder(scene.InventoryService, user2.PrincipalID, "folder1");
@@ -131,7 +131,7 @@ namespace OpenSim.Region.Framework.Tests
             Assert.That(retrievedFolder1, Is.Not.Null);
 
             // Try giving back the freshly received folder
-            scene.GiveInventoryFolder(user1.PrincipalID, user2.PrincipalID, retrievedFolder1.ID, UUID.Zero);
+            scene.GiveInventoryFolder(null, user1.PrincipalID, user2.PrincipalID, retrievedFolder1.ID, UUID.Zero);
 
             List<InventoryFolderBase> reretrievedFolders
                 = UserInventoryHelpers.GetInventoryFolders(scene.InventoryService, user1.PrincipalID, "folder1");

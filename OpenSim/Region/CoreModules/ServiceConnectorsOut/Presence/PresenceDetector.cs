@@ -69,7 +69,8 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Presence
         public void OnMakeRootAgent(ScenePresence sp)
         {
 //            m_log.DebugFormat("[PRESENCE DETECTOR]: Detected root presence {0} in {1}", sp.UUID, sp.Scene.RegionInfo.RegionName);
-            m_PresenceService.ReportAgent(sp.ControllingClient.SessionId, sp.Scene.RegionInfo.RegionID);
+            if (sp.PresenceType != PresenceType.Npc)
+                m_PresenceService.ReportAgent(sp.ControllingClient.SessionId, sp.Scene.RegionInfo.RegionID);
         }
 
         public void OnNewClient(IClientAPI client)
@@ -79,7 +80,7 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Presence
 
         public void OnConnectionClose(IClientAPI client)
         {
-            if (!client.SceneAgent.IsChildAgent)
+            if (client != null && client.SceneAgent != null && !client.SceneAgent.IsChildAgent)
             {
 //                m_log.DebugFormat("[PRESENCE DETECTOR]: Detected client logout {0} in {1}", client.AgentId, client.Scene.RegionInfo.RegionName);
                 m_PresenceService.LogoutAgent(client.SessionId);

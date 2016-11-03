@@ -65,7 +65,10 @@ namespace OpenSim.Region.CoreModules.Avatar.Lure
                 {
                     m_Enabled = true;
 
-                    m_ThisGridURL = config.Configs["Messaging"].GetString("Gatekeeper", string.Empty);
+                    m_ThisGridURL = Util.GetConfigVarFromSections<string>(config, "GatekeeperURI", 
+                        new string[] { "Startup", "Hypergrid", "Messaging" }, String.Empty);
+                    // Legacy. Remove soon!
+                    m_ThisGridURL = config.Configs["Messaging"].GetString("Gatekeeper", m_ThisGridURL);
                     m_log.DebugFormat("[LURE MODULE]: {0} enabled", Name);
                 }
             }
@@ -151,7 +154,8 @@ namespace OpenSim.Region.CoreModules.Avatar.Lure
 
         void OnIncomingInstantMessage(GridInstantMessage im)
         {
-            if (im.dialog == (byte)InstantMessageDialog.RequestTeleport)
+            if (im.dialog == (byte)InstantMessageDialog.RequestTeleport 
+                || im.dialog == (byte)InstantMessageDialog.GodLikeRequestTeleport)
             {
                 UUID sessionID = new UUID(im.imSessionID);
 
@@ -235,16 +239,29 @@ namespace OpenSim.Region.CoreModules.Avatar.Lure
                         GatekeeperServiceConnector gConn = new GatekeeperServiceConnector();
                         GridRegion gatekeeper = new GridRegion();
                         gatekeeper.ServerURI = url;
-                        GridRegion finalDestination = gConn.GetHyperlinkRegion(gatekeeper, new UUID(im.RegionID));
+                        string homeURI = scene.GetAgentHomeURI(client.AgentId);
+
+                        string message;
+                        GridRegion finalDestination = gConn.GetHyperlinkRegion(gatekeeper, new UUID(im.RegionID), client.AgentId, homeURI, out message);
                         if (finalDestination != null)
                         {
                             ScenePresence sp = scene.GetScenePresence(client.AgentId);
                             IEntityTransferModule transferMod = scene.RequestModuleInterface<IEntityTransferModule>();
 
                             if (transferMod != null && sp != null)
+                            {
+                                if (message != null)
+                                    sp.ControllingClient.SendAgentAlertMessage(message, true);
+
                                 transferMod.DoTeleport(
                                     sp, gatekeeper, finalDestination, im.Position + new Vector3(0.5f, 0.5f, 0f),
                                     Vector3.UnitX, teleportflags);
+                            }
+                        }
+                        else
+                        {
+                            m_log.InfoFormat("[HG LURE MODULE]: Lure failed: {0}", message);
+                            client.SendAgentAlertMessage(message, true);
                         }
                     }
                 }

@@ -28,12 +28,15 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Mail;
 using System.Net.Security;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Security.Cryptography.X509Certificates;
+using log4net;
 using Nini.Config;
 using OpenMetaverse;
 using OpenSim.Framework;
@@ -91,10 +94,13 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
     [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "HttpRequestModule")]
     public class HttpRequestModule : ISharedRegionModule, IHttpRequestModule
     {
+//        private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
         private object HttpListLock = new object();
         private int httpTimeout = 30000;
         private string m_name = "HttpScriptRequests";
 
+        private OutboundUrlFilter m_outboundUrlFilter;
         private string m_proxyurl = "";
         private string m_proxyexcepts = "";
 
@@ -132,10 +138,12 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
                     return false;
 
                 // Check for policy and execute it if defined
+#pragma warning disable 0618
                 if (ServicePointManager.CertificatePolicy != null)
                 {
                     return ServicePointManager.CertificatePolicy.CheckValidationResult (sp, certificate, Request, 0);
                 }
+#pragma warning restore 0618
 
                 return true;
             }
@@ -153,7 +161,9 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
             return UUID.Zero;
         }
 
-        public UUID StartHttpRequest(uint localID, UUID itemID, string url, List<string> parameters, Dictionary<string, string> headers, string body)
+        public UUID StartHttpRequest(
+            uint localID, UUID itemID, string url, List<string> parameters, Dictionary<string, string> headers, string body,
+            out HttpInitialRequestStatus status)
         {
             UUID reqID = UUID.Random();
             HttpRequestClass htc = new HttpRequestClass();
@@ -187,10 +197,50 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
                         case (int)HttpRequestConstants.HTTP_VERIFY_CERT:
                             htc.HttpVerifyCert = (int.Parse(parms[i + 1]) != 0);
                             break;
+
+                        case (int)HttpRequestConstants.HTTP_VERBOSE_THROTTLE:
+
+                            // TODO implement me
+                            break;
+
+                        case (int)HttpRequestConstants.HTTP_CUSTOM_HEADER:
+                            //Parameters are in pairs and custom header takes
+                            //arguments in pairs so adjust for header marker.
+                            ++i;
+
+                            //Maximum of 8 headers are allowed based on the
+                            //Second Life documentation for llHTTPRequest.
+                            for (int count = 1; count <= 8; ++count)
+                            {
+                                //Not enough parameters remaining for a header?
+                                if (parms.Length - i < 2)
+                                    break;
+
+                                //Have we reached the end of the list of headers?
+                                //End is marked by a string with a single digit.
+                                //We already know we have at least one parameter
+                                //so it is safe to do this check at top of loop.
+                                if (Char.IsDigit(parms[i][0]))
+                                    break;
+
+                                if (htc.HttpCustomHeaders == null)
+                                    htc.HttpCustomHeaders = new List<string>();
+
+                                htc.HttpCustomHeaders.Add(parms[i]);
+                                htc.HttpCustomHeaders.Add(parms[i+1]);
+
+                                i += 2;
+                            }
+                            break;
+
+                        case (int)HttpRequestConstants.HTTP_PRAGMA_NO_CACHE:
+                            htc.HttpPragmaNoCache = (int.Parse(parms[i + 1]) != 0);
+                            break;
                     }
                 }
             }
-
+                        
+            htc.RequestModule = this;
             htc.LocalID = localID;
             htc.ItemID = itemID;
             htc.Url = url;
@@ -201,28 +251,68 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
             htc.proxyurl = m_proxyurl;
             htc.proxyexcepts = m_proxyexcepts;
 
-            lock (HttpListLock)
+            // Same number as default HttpWebRequest.MaximumAutomaticRedirections
+            htc.MaxRedirects = 50;
+
+            if (StartHttpRequest(htc))
             {
-                m_pendingRequests.Add(reqID, htc);
+                status = HttpInitialRequestStatus.OK;
+                return htc.ReqID;
             }
-
-            htc.Process();
-
-            return reqID;
+            else
+            {
+                status = HttpInitialRequestStatus.DISALLOWED_BY_FILTER;
+                return UUID.Zero;
+            }
         }
 
-        public void StopHttpRequest(uint m_localID, UUID m_itemID)
+        /// <summary>
+        /// Would a caller to this module be allowed to make a request to the given URL?
+        /// </summary>
+        /// <returns></returns>
+        public bool CheckAllowed(Uri url)
+        {
+            return m_outboundUrlFilter.CheckAllowed(url);
+        }
+
+        public bool StartHttpRequest(HttpRequestClass req)
+        {          
+            if (!CheckAllowed(new Uri(req.Url)))
+                return false;
+
+            lock (HttpListLock)
+            {
+                m_pendingRequests.Add(req.ReqID, req);
+            }
+
+            req.Process();
+
+            return true;
+        }
+
+        public void StopHttpRequestsForScript(UUID id)
         {
             if (m_pendingRequests != null)
             {
+                List<UUID> keysToRemove = null;
+
                 lock (HttpListLock)
                 {
-                    HttpRequestClass tmpReq;
-                    if (m_pendingRequests.TryGetValue(m_itemID, out tmpReq))
+                    foreach (HttpRequestClass req in m_pendingRequests.Values)
                     {
-                        tmpReq.Stop();
-                        m_pendingRequests.Remove(m_itemID);
+                        if (req.ItemID == id)
+                        {
+                            req.Stop();
+
+                            if (keysToRemove == null)
+                                keysToRemove = new List<UUID>();
+
+                            keysToRemove.Add(req.ReqID);
+                        }
                     }
+
+                    if (keysToRemove != null)
+                        keysToRemove.ForEach(keyToRemove => m_pendingRequests.Remove(keyToRemove));
                 }
             }
         }
@@ -240,19 +330,13 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
         {
             lock (HttpListLock)
             {
-                foreach (UUID luid in m_pendingRequests.Keys)
+                foreach (HttpRequestClass req in m_pendingRequests.Values)
                 {
-                    HttpRequestClass tmpReq;
-
-                    if (m_pendingRequests.TryGetValue(luid, out tmpReq))
-                    {
-                        if (tmpReq.Finished)
-                        {
-                            return tmpReq;
-                        }
-                    }
+                    if (req.Finished)
+                        return req;
                 }
             }
+
             return null;
         }
 
@@ -278,6 +362,8 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
         {
             m_proxyurl = config.Configs["Startup"].GetString("HttpProxy");
             m_proxyexcepts = config.Configs["Startup"].GetString("HttpProxyExceptions");
+
+            m_outboundUrlFilter = new OutboundUrlFilter("Script HTTP request module", config);
 
             m_pendingRequests = new Dictionary<UUID, HttpRequestClass>();
         }
@@ -321,16 +407,27 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
         #endregion
     }
 
-    public class HttpRequestClass: IServiceRequest
+    public class HttpRequestClass : IServiceRequest
     {
+//        private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
         // Constants for parameters
         // public const int HTTP_BODY_MAXLENGTH = 2;
         // public const int HTTP_METHOD = 0;
         // public const int HTTP_MIMETYPE = 1;
         // public const int HTTP_VERIFY_CERT = 3;
+        // public const int HTTP_VERBOSE_THROTTLE = 4;
+        // public const int HTTP_CUSTOM_HEADER = 5;
+        // public const int HTTP_PRAGMA_NO_CACHE = 6;
+
+        /// <summary>
+        /// Module that made this request.
+        /// </summary>
+        public HttpRequestModule RequestModule { get; set; }
+
         private bool _finished;
         public bool Finished
-        { 
+        {
             get { return _finished; }
         }
         // public int HttpBodyMaxLen = 2048; // not implemented
@@ -340,11 +437,13 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
         public string HttpMIMEType = "text/plain;charset=utf-8";
         public int HttpTimeout;
         public bool HttpVerifyCert = true;
-        private Thread httpThread;
+        //public bool HttpVerboseThrottle = true; // not implemented
+        public List<string> HttpCustomHeaders = null;
+        public bool HttpPragmaNoCache = true;
 
         // Request info
         private UUID _itemID;
-        public UUID ItemID 
+        public UUID ItemID
         {
             get { return _itemID; }
             set { _itemID = value; }
@@ -358,9 +457,20 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
         public DateTime Next;
         public string proxyurl;
         public string proxyexcepts;
+
+        /// <summary>
+        /// Number of HTTP redirects that this request has been through.
+        /// </summary>
+        public int Redirects { get; private set; }
+
+        /// <summary>
+        /// Maximum number of HTTP redirects allowed for this request.
+        /// </summary>
+        public int MaxRedirects { get; set; }
+
         public string OutboundBody;
         private UUID _reqID;
-        public UUID ReqID 
+        public UUID ReqID
         {
             get { return _reqID; }
             set { _reqID = value; }
@@ -374,34 +484,19 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
 
         public void Process()
         {
-            httpThread = new Thread(SendRequest);
-            httpThread.Name = "HttpRequestThread";
-            httpThread.Priority = ThreadPriority.BelowNormal;
-            httpThread.IsBackground = true;
-            _finished = false;
-            httpThread.Start();
+            SendRequest();
         }
-
-        /*
-         * TODO: More work on the response codes.  Right now
-         * returning 200 for success or 499 for exception
-         */
 
         public void SendRequest()
         {
-            HttpWebResponse response = null;
-            StringBuilder sb = new StringBuilder();
-            byte[] buf = new byte[8192];
-            string tempString = null;
-            int count = 0;
-
             try
             {
-                Request = (HttpWebRequest) WebRequest.Create(Url);
+                Request = (HttpWebRequest)WebRequest.Create(Url);
+                Request.AllowAutoRedirect = false;               
                 Request.Method = HttpMethod;
                 Request.ContentType = HttpMIMEType;
 
-                if(!HttpVerifyCert)
+                if (!HttpVerifyCert)
                 {
                     // We could hijack Connection Group Name to identify
                     // a desired security exception.  But at the moment we'll use a dummy header instead.
@@ -412,41 +507,57 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
 //                {
 //                    Request.ConnectionGroupName="Verify";
 //                }
-                if (proxyurl != null && proxyurl.Length > 0) 
+
+                if (!HttpPragmaNoCache)
                 {
-                    if (proxyexcepts != null && proxyexcepts.Length > 0) 
+                    Request.Headers.Add("Pragma", "no-cache");
+                }
+
+                if (HttpCustomHeaders != null)
+                {
+                    for (int i = 0; i < HttpCustomHeaders.Count; i += 2)
+                        Request.Headers.Add(HttpCustomHeaders[i],
+                                            HttpCustomHeaders[i+1]);
+                }
+
+                if (!string.IsNullOrEmpty(proxyurl))
+                {
+                    if (!string.IsNullOrEmpty(proxyexcepts))
                     {
                         string[] elist = proxyexcepts.Split(';');
                         Request.Proxy = new WebProxy(proxyurl, true, elist);
-                    } 
-                    else 
+                    }
+                    else
                     {
                         Request.Proxy = new WebProxy(proxyurl, true);
                     }
                 }
 
-                foreach (KeyValuePair<string, string> entry in ResponseHeaders)
-                    if (entry.Key.ToLower().Equals("user-agent"))
-                        Request.UserAgent = entry.Value;
-                    else
-                        Request.Headers[entry.Key] = entry.Value;
+                if (ResponseHeaders != null)
+                {
+                    foreach (KeyValuePair<string, string> entry in ResponseHeaders)
+                        if (entry.Key.ToLower().Equals("user-agent") && Request is HttpWebRequest)
+                            ((HttpWebRequest)Request).UserAgent = entry.Value;
+                        else
+                            Request.Headers[entry.Key] = entry.Value;
+                }
 
                 // Encode outbound data
-                if (OutboundBody.Length > 0) 
+                if (!string.IsNullOrEmpty(OutboundBody))
                 {
                     byte[] data = Util.UTF8.GetBytes(OutboundBody);
 
                     Request.ContentLength = data.Length;
-                    Stream bstream = Request.GetRequestStream();
-                    bstream.Write(data, 0, data.Length);
-                    bstream.Close();
+                    using (Stream bstream = Request.GetRequestStream())
+                        bstream.Write(data, 0, data.Length);
                 }
 
-                Request.Timeout = HttpTimeout;
                 try
                 {
-                    // execute the request
-                    response = (HttpWebResponse) Request.GetResponse();
+                    IAsyncResult result = (IAsyncResult)Request.BeginGetResponse(ResponseCallback, null);
+
+                    ThreadPool.RegisterWaitForSingleObject(
+                        result.AsyncWaitHandle, new WaitOrTimerCallback(TimeoutCallback), null, HttpTimeout, true);
                 }
                 catch (WebException e)
                 {
@@ -454,57 +565,127 @@ namespace OpenSim.Region.CoreModules.Scripting.HttpRequest
                     {
                         throw;
                     }
+
+                    HttpWebResponse response = (HttpWebResponse)e.Response;
+
+                    Status = (int)response.StatusCode;
+                    ResponseBody = response.StatusDescription;
+                    _finished = true;
+                }
+            }
+            catch (Exception e)
+            {
+//                m_log.Debug(
+//                    string.Format("[SCRIPTS HTTP REQUESTS]: Exception on request to {0} for {1}  ", Url, ItemID), e);
+
+                Status = (int)OSHttpStatusCode.ClientErrorJoker;
+                ResponseBody = e.Message;
+                _finished = true;
+            }
+        }
+
+        private void ResponseCallback(IAsyncResult ar)
+        {
+            HttpWebResponse response = null;
+
+            try
+            {
+                try
+                {
+                    response = (HttpWebResponse)Request.EndGetResponse(ar);
+                }
+                catch (WebException e)
+                {
+                    if (e.Status != WebExceptionStatus.ProtocolError)
+                    {
+                        throw;
+                    }
+
                     response = (HttpWebResponse)e.Response;
                 }
 
                 Status = (int)response.StatusCode;
 
-                Stream resStream = response.GetResponseStream();
-
-                do
+                using (Stream stream = response.GetResponseStream())
                 {
-                    // fill the buffer with data
-                    count = resStream.Read(buf, 0, buf.Length);
-
-                    // make sure we read some data
-                    if (count != 0)
-                    {
-                        // translate from bytes to ASCII text
-                        tempString = Util.UTF8.GetString(buf, 0, count);
-
-                        // continue building the string
-                        sb.Append(tempString);
-                    }
-                } while (count > 0); // any more data to read?
-
-                ResponseBody = sb.ToString();
+                    StreamReader reader = new StreamReader(stream, Encoding.UTF8);
+                    ResponseBody = reader.ReadToEnd();
+                } 
             }
             catch (Exception e)
             {
                 Status = (int)OSHttpStatusCode.ClientErrorJoker;
                 ResponseBody = e.Message;
 
-                _finished = true;
-                return;
+//                m_log.Debug(
+//                    string.Format("[SCRIPTS HTTP REQUESTS]: Exception on response to {0} for {1}  ", Url, ItemID), e);
             }
             finally
             {
                 if (response != null)
                     response.Close();
-            }
 
-            _finished = true;
+                // We need to resubmit 
+                if (
+                    (Status == (int)HttpStatusCode.MovedPermanently
+                        || Status == (int)HttpStatusCode.Found
+                        || Status == (int)HttpStatusCode.SeeOther
+                        || Status == (int)HttpStatusCode.TemporaryRedirect))
+                {
+                    if (Redirects >= MaxRedirects)
+                    {
+                        Status = (int)OSHttpStatusCode.ClientErrorJoker;
+                        ResponseBody = "Number of redirects exceeded max redirects";
+                        _finished = true;
+                    }
+                    else
+                    {
+                        string location = response.Headers["Location"];
+
+                        if (location == null)
+                        {
+                            Status = (int)OSHttpStatusCode.ClientErrorJoker;
+                            ResponseBody = "HTTP redirect code but no location header";
+                            _finished = true;
+                        }
+                        else if (!RequestModule.CheckAllowed(new Uri(location)))
+                        {
+                            Status = (int)OSHttpStatusCode.ClientErrorJoker;
+                            ResponseBody = "URL from HTTP redirect blocked: " + location;
+                            _finished = true;
+                        }
+                        else
+                        {
+                            Status = 0;
+                            Url = response.Headers["Location"];
+                            Redirects++;
+                            ResponseBody = null;
+
+//                            m_log.DebugFormat("Redirecting to [{0}]", Url);
+
+                            Process();
+                        }
+                    }
+                }
+                else
+                {
+                    _finished = true;
+                }
+            }
+        }
+
+        private void TimeoutCallback(object state, bool timedOut)
+        {
+            if (timedOut)
+                Request.Abort();
         }
 
         public void Stop()
         {
-            try
-            {
-                httpThread.Abort();
-            }
-            catch (Exception)
-            {
-            }
+//            m_log.DebugFormat("[SCRIPTS HTTP REQUESTS]: Stopping request to {0} for {1}  ", Url, ItemID);
+
+            if (Request != null)
+                Request.Abort();
         }
     }
 }

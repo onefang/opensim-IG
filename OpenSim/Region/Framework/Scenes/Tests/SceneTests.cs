@@ -36,13 +36,11 @@ using Nini.Config;
 using NUnit.Framework;
 using OpenMetaverse;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.CoreModules.World.Serialiser;
 using OpenSim.Region.CoreModules.ServiceConnectorsOut.Simulation;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.Framework.Scenes.Tests
 {
@@ -52,6 +50,29 @@ namespace OpenSim.Region.Framework.Scenes.Tests
     [TestFixture]
     public class SceneTests : OpenSimTestCase
     {
+        [Test]
+        public void TestCreateScene()
+        {
+            TestHelpers.InMethod();
+
+            new SceneHelpers().SetupScene();
+        }
+
+        [Test]
+        public void TestCreateVarScene()
+        {
+            TestHelpers.InMethod();
+            UUID regionUuid = TestHelpers.ParseTail(0x1);
+            uint sizeX = 512;
+            uint sizeY = 512;
+
+            Scene scene 
+                = new SceneHelpers().SetupScene("scene", regionUuid, 1000, 1000, sizeX, sizeY, new IniConfigSource());
+
+            Assert.AreEqual(sizeX, scene.RegionInfo.RegionSizeX);
+            Assert.AreEqual(sizeY, scene.RegionInfo.RegionSizeY);
+        }
+
         /// <summary>
         /// Very basic scene update test.  Should become more elaborate with time.
         /// </summary>

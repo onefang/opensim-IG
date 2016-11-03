@@ -31,10 +31,8 @@ using System.Reflection;
 using NUnit.Framework;
 using OpenMetaverse;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.Framework.Scenes.Tests
 {
@@ -55,6 +53,25 @@ namespace OpenSim.Region.Framework.Scenes.Tests
             m_scene = new SceneHelpers().SetupScene();
             m_so1 = SceneHelpers.CreateSceneObject(1, m_ownerId, "so1", 0x10);
             m_so2 = SceneHelpers.CreateSceneObject(1, m_ownerId, "so2", 0x20);
+        }
+
+        [Test]
+        public void TestSetTemporary()
+        {
+            TestHelpers.InMethod();
+
+            m_scene.AddSceneObject(m_so1);
+            m_so1.ScriptSetTemporaryStatus(true);
+
+            // Is this really the correct flag?
+            Assert.That(m_so1.RootPart.Flags, Is.EqualTo(PrimFlags.TemporaryOnRez));
+            Assert.That(m_so1.Backup, Is.False);
+
+            // Test setting back to non-temporary
+            m_so1.ScriptSetTemporaryStatus(false);
+
+            Assert.That(m_so1.RootPart.Flags, Is.EqualTo(PrimFlags.None));
+            Assert.That(m_so1.Backup, Is.True);          
         }
 
         [Test]

@@ -37,7 +37,8 @@ using Nini.Config;
 using NUnit.Framework;
 using OpenMetaverse;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
+using OpenSim.Framework.Servers;
+using OpenSim.Framework.Servers.HttpServer;
 using OpenSim.Region.CoreModules.Avatar.Attachments;
 using OpenSim.Region.CoreModules.Framework;
 using OpenSim.Region.CoreModules.Framework.EntityTransfer;
@@ -51,7 +52,6 @@ using OpenSim.Region.ScriptEngine.Interfaces;
 using OpenSim.Region.ScriptEngine.XEngine;
 using OpenSim.Services.Interfaces;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
 {
@@ -130,7 +130,9 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             config.AddConfig("Modules");
             config.Configs["Modules"].Set("InventoryAccessModule", "BasicInventoryAccessModule");
 
-            modules.Add(new AttachmentsModule());
+            AttachmentsModule attMod = new AttachmentsModule();
+            attMod.DebugLevel = 1;
+            modules.Add(attMod);
             modules.Add(new BasicInventoryAccessModule());
         }
 
@@ -195,9 +197,10 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             string attName = "att";
 
             SceneObjectGroup so = SceneHelpers.AddSceneObject(scene, attName, sp.UUID);
+            Assert.That(so.Backup, Is.True);
 
             m_numberOfAttachEventsFired = 0;
-            scene.AttachmentsModule.AttachObject(sp, so, (uint)AttachmentPoint.Chest, false, false);
+            scene.AttachmentsModule.AttachObject(sp, so, (uint)AttachmentPoint.Chest, false, true, false);
 
             // Check status on scene presence
             Assert.That(sp.HasAttachments(), Is.True);
@@ -209,6 +212,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             Assert.That(attSo.IsAttachment);
             Assert.That(attSo.UsesPhysics, Is.False);
             Assert.That(attSo.IsTemporary, Is.False);
+            Assert.That(attSo.Backup, Is.False);
 
             // Check item status
             Assert.That(
@@ -219,13 +223,127 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             Assert.That(attachmentItem, Is.Not.Null);
             Assert.That(attachmentItem.Name, Is.EqualTo(attName));
 
-            InventoryFolderBase targetFolder = scene.InventoryService.GetFolderForType(sp.UUID, AssetType.Object);
+            InventoryFolderBase targetFolder = scene.InventoryService.GetFolderForType(sp.UUID, FolderType.Object);
             Assert.That(attachmentItem.Folder, Is.EqualTo(targetFolder.ID));
 
             Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
 
             // Check events
             Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void TestWearAttachmentFromGround()
+        {
+            TestHelpers.InMethod();
+//            TestHelpers.EnableLogging();
+
+            Scene scene = CreateTestScene();
+            UserAccount ua1 = UserAccountHelpers.CreateUserWithInventory(scene, 0x1);
+            ScenePresence sp = SceneHelpers.AddScenePresence(scene, ua1);
+
+            SceneObjectGroup so2 = SceneHelpers.AddSceneObject(scene, "att2", sp.UUID);
+
+            {
+                SceneObjectGroup so = SceneHelpers.AddSceneObject(scene, "att1", sp.UUID);
+
+                m_numberOfAttachEventsFired = 0;
+                scene.AttachmentsModule.AttachObject(sp, so, (uint)AttachmentPoint.Default, false, true, false);
+
+                // Check status on scene presence
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(so.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.LeftHand));
+                Assert.That(attSo.IsAttachment);
+                Assert.That(attSo.UsesPhysics, Is.False);
+                Assert.That(attSo.IsTemporary, Is.False);
+
+                // Check item status
+                Assert.That(
+                    sp.Appearance.GetAttachpoint(attSo.FromItemID),
+                    Is.EqualTo((int)AttachmentPoint.LeftHand));
+
+                InventoryItemBase attachmentItem = scene.InventoryService.GetItem(new InventoryItemBase(attSo.FromItemID));
+                Assert.That(attachmentItem, Is.Not.Null);
+                Assert.That(attachmentItem.Name, Is.EqualTo(so.Name));
+
+                InventoryFolderBase targetFolder = scene.InventoryService.GetFolderForType(sp.UUID, FolderType.Object);
+                Assert.That(attachmentItem.Folder, Is.EqualTo(targetFolder.ID));
+
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(2));
+
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(1));
+            }
+
+            // Test wearing a different attachment from the ground.
+            {
+                scene.AttachmentsModule.AttachObject(sp, so2, (uint)AttachmentPoint.Default, false, true, false);
+
+                // Check status on scene presence
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(so2.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.LeftHand));
+                Assert.That(attSo.IsAttachment);
+                Assert.That(attSo.UsesPhysics, Is.False);
+                Assert.That(attSo.IsTemporary, Is.False);
+
+                // Check item status
+                Assert.That(
+                    sp.Appearance.GetAttachpoint(attSo.FromItemID),
+                    Is.EqualTo((int)AttachmentPoint.LeftHand));
+
+                InventoryItemBase attachmentItem = scene.InventoryService.GetItem(new InventoryItemBase(attSo.FromItemID));
+                Assert.That(attachmentItem, Is.Not.Null);
+                Assert.That(attachmentItem.Name, Is.EqualTo(so2.Name));
+
+                InventoryFolderBase targetFolder = scene.InventoryService.GetFolderForType(sp.UUID, FolderType.Object);
+                Assert.That(attachmentItem.Folder, Is.EqualTo(targetFolder.ID));
+
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
+
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(3));
+            }
+
+            // Test rewearing an already worn attachment from ground.  Nothing should happen.
+            {
+                scene.AttachmentsModule.AttachObject(sp, so2, (uint)AttachmentPoint.Default, false, true, false);
+
+                // Check status on scene presence
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(so2.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.LeftHand));
+                Assert.That(attSo.IsAttachment);
+                Assert.That(attSo.UsesPhysics, Is.False);
+                Assert.That(attSo.IsTemporary, Is.False);
+
+                // Check item status
+                Assert.That(
+                    sp.Appearance.GetAttachpoint(attSo.FromItemID),
+                    Is.EqualTo((int)AttachmentPoint.LeftHand));
+
+                InventoryItemBase attachmentItem = scene.InventoryService.GetItem(new InventoryItemBase(attSo.FromItemID));
+                Assert.That(attachmentItem, Is.Not.Null);
+                Assert.That(attachmentItem.Name, Is.EqualTo(so2.Name));
+
+                InventoryFolderBase targetFolder = scene.InventoryService.GetFolderForType(sp.UUID, FolderType.Object);
+                Assert.That(attachmentItem.Folder, Is.EqualTo(targetFolder.ID));
+
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
+
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(3));
+            }
         }
 
         /// <summary>
@@ -254,7 +372,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             sp2.AbsolutePosition = new Vector3(0, 0, 0);
             sp2.HandleAgentRequestSit(sp2.ControllingClient, sp2.UUID, so.UUID, Vector3.Zero);
 
-            scene.AttachmentsModule.AttachObject(sp, so, (uint)AttachmentPoint.Chest, false, false);
+            scene.AttachmentsModule.AttachObject(sp, so, (uint)AttachmentPoint.Chest, false, true, false);
 
             Assert.That(sp.HasAttachments(), Is.False);
             Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
@@ -267,7 +385,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
         public void TestRezAttachmentFromInventory()
         {
             TestHelpers.InMethod();
-//            log4net.Config.XmlConfigurator.Configure();
+//            TestHelpers.EnableLogging();
 
             Scene scene = CreateTestScene();
             UserAccount ua1 = UserAccountHelpers.CreateUserWithInventory(scene, 0x1);
@@ -275,29 +393,141 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
 
             InventoryItemBase attItem = CreateAttachmentItem(scene, ua1.PrincipalID, "att", 0x10, 0x20);
 
-            m_numberOfAttachEventsFired = 0;
-            scene.AttachmentsModule.RezSingleAttachmentFromInventory(
-                sp, attItem.ID, (uint)AttachmentPoint.Chest);
+            {
+                scene.AttachmentsModule.RezSingleAttachmentFromInventory(
+                    sp, attItem.ID, (uint)AttachmentPoint.Chest);
 
-            // Check scene presence status
-            Assert.That(sp.HasAttachments(), Is.True);
-            List<SceneObjectGroup> attachments = sp.GetAttachments();
-            Assert.That(attachments.Count, Is.EqualTo(1));
-            SceneObjectGroup attSo = attachments[0];
-            Assert.That(attSo.Name, Is.EqualTo(attItem.Name));
-            Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.Chest));
-            Assert.That(attSo.IsAttachment);
-            Assert.That(attSo.UsesPhysics, Is.False);
-            Assert.That(attSo.IsTemporary, Is.False);
+                // Check scene presence status
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(attItem.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.Chest));
+                Assert.That(attSo.IsAttachment);
+                Assert.That(attSo.UsesPhysics, Is.False);
+                Assert.That(attSo.IsTemporary, Is.False);
+                Assert.IsFalse(attSo.Backup);
 
-            // Check appearance status
-            Assert.That(sp.Appearance.GetAttachments().Count, Is.EqualTo(1));
-            Assert.That(sp.Appearance.GetAttachpoint(attItem.ID), Is.EqualTo((int)AttachmentPoint.Chest));
+                // Check appearance status
+                Assert.That(sp.Appearance.GetAttachments().Count, Is.EqualTo(1));
+                Assert.That(sp.Appearance.GetAttachpoint(attItem.ID), Is.EqualTo((int)AttachmentPoint.Chest));
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
 
-            Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(1));
+            }
 
-            // Check events
-            Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(1));
+            // Test attaching an already attached attachment
+            {
+                scene.AttachmentsModule.RezSingleAttachmentFromInventory(
+                    sp, attItem.ID, (uint)AttachmentPoint.Chest);
+
+                // Check scene presence status
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(attItem.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.Chest));
+                Assert.That(attSo.IsAttachment);
+                Assert.That(attSo.UsesPhysics, Is.False);
+                Assert.That(attSo.IsTemporary, Is.False);
+
+                // Check appearance status
+                Assert.That(sp.Appearance.GetAttachments().Count, Is.EqualTo(1));
+                Assert.That(sp.Appearance.GetAttachpoint(attItem.ID), Is.EqualTo((int)AttachmentPoint.Chest));
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
+
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(1));
+            }
+        }
+
+        /// <summary>
+        /// Test wearing an attachment from inventory, as opposed to explicit choosing the rez point
+        /// </summary>
+        [Test]
+        public void TestWearAttachmentFromInventory()
+        {
+            TestHelpers.InMethod();
+//            TestHelpers.EnableLogging();
+
+            Scene scene = CreateTestScene();
+            UserAccount ua1 = UserAccountHelpers.CreateUserWithInventory(scene, 0x1);
+            ScenePresence sp = SceneHelpers.AddScenePresence(scene, ua1.PrincipalID);
+
+            InventoryItemBase attItem1 = CreateAttachmentItem(scene, ua1.PrincipalID, "att1", 0x10, 0x20);
+            InventoryItemBase attItem2 = CreateAttachmentItem(scene, ua1.PrincipalID, "att2", 0x11, 0x21);
+
+            {
+                m_numberOfAttachEventsFired = 0;
+                scene.AttachmentsModule.RezSingleAttachmentFromInventory(sp, attItem1.ID, (uint)AttachmentPoint.Default);
+
+                // default attachment point is currently the left hand.
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(attItem1.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.LeftHand));
+                Assert.That(attSo.IsAttachment);
+
+                // Check appearance status
+                Assert.That(sp.Appearance.GetAttachments().Count, Is.EqualTo(1));
+                Assert.That(sp.Appearance.GetAttachpoint(attItem1.ID), Is.EqualTo((int)AttachmentPoint.LeftHand));
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
+
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(1));
+            }
+
+            // Test wearing a second attachment at the same position
+            // Until multiple attachments at one point is implemented, this will remove the first attachment
+            // This test relies on both attachments having the same default attachment point (in this case LeftHand 
+            // since none other has been set).
+            {
+                scene.AttachmentsModule.RezSingleAttachmentFromInventory(sp, attItem2.ID, (uint)AttachmentPoint.Default);
+
+                // default attachment point is currently the left hand.
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(attItem2.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.LeftHand));
+                Assert.That(attSo.IsAttachment);
+
+                // Check appearance status
+                Assert.That(sp.Appearance.GetAttachments().Count, Is.EqualTo(1));
+                Assert.That(sp.Appearance.GetAttachpoint(attItem2.ID), Is.EqualTo((int)AttachmentPoint.LeftHand));
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
+
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(3));
+            }
+
+            // Test wearing an already attached attachment
+            {
+                scene.AttachmentsModule.RezSingleAttachmentFromInventory(sp, attItem2.ID, (uint)AttachmentPoint.Default);
+
+                // default attachment point is currently the left hand.
+                Assert.That(sp.HasAttachments(), Is.True);
+                List<SceneObjectGroup> attachments = sp.GetAttachments();
+                Assert.That(attachments.Count, Is.EqualTo(1));
+                SceneObjectGroup attSo = attachments[0];
+                Assert.That(attSo.Name, Is.EqualTo(attItem2.Name));
+                Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)AttachmentPoint.LeftHand));
+                Assert.That(attSo.IsAttachment);
+
+                // Check appearance status
+                Assert.That(sp.Appearance.GetAttachments().Count, Is.EqualTo(1));
+                Assert.That(sp.Appearance.GetAttachpoint(attItem2.ID), Is.EqualTo((int)AttachmentPoint.LeftHand));
+                Assert.That(scene.GetSceneObjectGroups().Count, Is.EqualTo(1));
+
+                // Check events
+                Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(3));
+            }
         }
 
         /// <summary>
@@ -315,7 +545,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             SceneObjectGroup so = SceneHelpers.CreateSceneObject(1, sp.UUID, "att-name", 0x10);
             TaskInventoryItem scriptItem
                 = TaskInventoryHelpers.AddScript(
-                    scene,
+                    scene.AssetService,
                     so.RootPart,
                     "scriptItem",
                     "default { attach(key id) { if (id != NULL_KEY) { llSay(0, \"Hello World\"); } } }");
@@ -372,7 +602,9 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             Assert.That(scene.InventoryService.GetItem(new InventoryItemBase(attItem.ID)), Is.Null);
 
             // Check object in scene
-            Assert.That(scene.GetSceneObjectGroup("att"), Is.Not.Null);
+            SceneObjectGroup soInScene = scene.GetSceneObjectGroup("att");
+            Assert.That(soInScene, Is.Not.Null);
+            Assert.IsTrue(soInScene.Backup);
 
             // Check events
             Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(1));
@@ -426,7 +658,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             SceneObjectGroup so = SceneHelpers.CreateSceneObject(1, sp.UUID, "att-name", 0x10);
             TaskInventoryItem scriptTaskItem
                 = TaskInventoryHelpers.AddScript(
-                    scene,
+                    scene.AssetService,
                     so.RootPart,
                     "scriptItem",
                     "default { attach(key id) { if (id != NULL_KEY) { llSay(0, \"Hello World\"); } } }");
@@ -490,7 +722,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             SceneObjectGroup rezzedAtt = presence.GetAttachments()[0];
 
             m_numberOfAttachEventsFired = 0;
-            scene.IncomingCloseAgent(presence.UUID, false);
+            scene.CloseAgent(presence.UUID, false);
 
             // Check that we can't retrieve this attachment from the scene.
             Assert.That(scene.GetSceneObjectGroup(rezzedAtt.UUID), Is.Null);
@@ -503,7 +735,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
         public void TestRezAttachmentsOnAvatarEntrance()
         {
             TestHelpers.InMethod();
-//            log4net.Config.XmlConfigurator.Configure();
+//            TestHelpers.EnableLogging();
 
             Scene scene = CreateTestScene();
             UserAccount ua1 = UserAccountHelpers.CreateUserWithInventory(scene, 0x1);
@@ -526,6 +758,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             Assert.That(attSo.IsAttachment);
             Assert.That(attSo.UsesPhysics, Is.False);
             Assert.That(attSo.IsTemporary, Is.False);
+            Assert.IsFalse(attSo.Backup);
 
             // Check appearance status
             List<AvatarAttachment> retreivedAttachments = presence.Appearance.GetAttachments();
@@ -569,11 +802,16 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(0));
         }
 
+/*
         [Test]
-        public void TestSameSimulatorNeighbouringRegionsTeleport()
+        public void TestSameSimulatorNeighbouringRegionsTeleportV1()
         {
             TestHelpers.InMethod();
 //            TestHelpers.EnableLogging();
+
+            BaseHttpServer httpServer = new BaseHttpServer(99999);
+            MainServer.AddHttpServer(httpServer);
+            MainServer.Instance = httpServer;
 
             AttachmentsModule attModA = new AttachmentsModule();
             AttachmentsModule attModB = new AttachmentsModule();
@@ -603,8 +841,17 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             SceneHelpers.SetupSceneModules(
                 sceneB, config, new CapabilitiesModule(), etmB, attModB, new BasicInventoryAccessModule());
 
+            // FIXME: Hack - this is here temporarily to revert back to older entity transfer behaviour
+            lscm.ServiceVersion = 0.1f;
+
             UserAccount ua1 = UserAccountHelpers.CreateUserWithInventory(sceneA, 0x1);
-            ScenePresence beforeTeleportSp = SceneHelpers.AddScenePresence(sceneA, ua1.PrincipalID, sh.SceneManager);
+
+            AgentCircuitData acd = SceneHelpers.GenerateAgentData(ua1.PrincipalID);
+            TestClient tc = new TestClient(acd, sceneA);
+            List<TestClient> destinationTestClients = new List<TestClient>();
+            EntityTransferHelpers.SetupInformClientOfNeighbourTriggersNeighbourClientCreate(tc, destinationTestClients);
+
+            ScenePresence beforeTeleportSp = SceneHelpers.AddScenePresence(sceneA, tc, acd);
             beforeTeleportSp.AbsolutePosition = new Vector3(30, 31, 32);
 
             InventoryItemBase attItem = CreateAttachmentItem(sceneA, ua1.PrincipalID, "att", 0x10, 0x20);
@@ -623,7 +870,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
                 teleportLookAt,
                 (uint)TeleportFlags.ViaLocation);
 
-            ((TestClient)beforeTeleportSp.ControllingClient).CompleteTeleportClientSide();
+            destinationTestClients[0].CompleteMovement();
 
             // Check attachments have made it into sceneB
             ScenePresence afterTeleportSceneBSp = sceneB.GetScenePresence(ua1.PrincipalID);
@@ -642,6 +889,119 @@ namespace OpenSim.Region.CoreModules.Avatar.Attachments.Tests
             SceneObjectGroup actualSceneBAtt = actualSceneBAttachments[0];
             Assert.That(actualSceneBAtt.Name, Is.EqualTo(attItem.Name));
             Assert.That(actualSceneBAtt.AttachmentPoint, Is.EqualTo((uint)AttachmentPoint.Chest));
+            Assert.IsFalse(actualSceneBAtt.Backup);
+
+            Assert.That(sceneB.GetSceneObjectGroups().Count, Is.EqualTo(1));
+
+            // Check attachments have been removed from sceneA
+            ScenePresence afterTeleportSceneASp = sceneA.GetScenePresence(ua1.PrincipalID);
+
+            // Since this is appearance data, it is still present on the child avatar!
+            List<AvatarAttachment> sceneAAttachments = afterTeleportSceneASp.Appearance.GetAttachments();
+            Assert.That(sceneAAttachments.Count, Is.EqualTo(1));
+            Assert.That(afterTeleportSceneASp.Appearance.GetAttachpoint(attItem.ID), Is.EqualTo((int)AttachmentPoint.Chest));
+
+            // This is the actual attachment, which should no longer exist
+            List<SceneObjectGroup> actualSceneAAttachments = afterTeleportSceneASp.GetAttachments();
+            Assert.That(actualSceneAAttachments.Count, Is.EqualTo(0));
+
+            Assert.That(sceneA.GetSceneObjectGroups().Count, Is.EqualTo(0));
+
+            // Check events
+            Assert.That(m_numberOfAttachEventsFired, Is.EqualTo(0));
+        }
+*/
+
+        [Test]
+        public void TestSameSimulatorNeighbouringRegionsTeleportV2()
+        {
+            TestHelpers.InMethod();
+//            TestHelpers.EnableLogging();
+
+            BaseHttpServer httpServer = new BaseHttpServer(99999);
+            MainServer.AddHttpServer(httpServer);
+            MainServer.Instance = httpServer;
+
+            AttachmentsModule attModA = new AttachmentsModule();
+            AttachmentsModule attModB = new AttachmentsModule();
+            EntityTransferModule etmA = new EntityTransferModule();
+            EntityTransferModule etmB = new EntityTransferModule();
+            LocalSimulationConnectorModule lscm = new LocalSimulationConnectorModule();
+
+            IConfigSource config = new IniConfigSource();
+            IConfig modulesConfig = config.AddConfig("Modules");
+            modulesConfig.Set("EntityTransferModule", etmA.Name);
+            modulesConfig.Set("SimulationServices", lscm.Name);
+
+            modulesConfig.Set("InventoryAccessModule", "BasicInventoryAccessModule");
+
+            SceneHelpers sh = new SceneHelpers();
+            TestScene sceneA = sh.SetupScene("sceneA", TestHelpers.ParseTail(0x100), 1000, 1000);
+            TestScene sceneB = sh.SetupScene("sceneB", TestHelpers.ParseTail(0x200), 1001, 1000);
+
+            SceneHelpers.SetupSceneModules(new Scene[] { sceneA, sceneB }, config, lscm);
+            SceneHelpers.SetupSceneModules(
+                sceneA, config, new CapabilitiesModule(), etmA, attModA, new BasicInventoryAccessModule());
+            SceneHelpers.SetupSceneModules(
+                sceneB, config, new CapabilitiesModule(), etmB, attModB, new BasicInventoryAccessModule());
+
+            UserAccount ua1 = UserAccountHelpers.CreateUserWithInventory(sceneA, 0x1);
+
+            AgentCircuitData acd = SceneHelpers.GenerateAgentData(ua1.PrincipalID);
+            TestClient tc = new TestClient(acd, sceneA);
+            List<TestClient> destinationTestClients = new List<TestClient>();
+            EntityTransferHelpers.SetupInformClientOfNeighbourTriggersNeighbourClientCreate(tc, destinationTestClients);
+
+            ScenePresence beforeTeleportSp = SceneHelpers.AddScenePresence(sceneA, tc, acd);
+            beforeTeleportSp.AbsolutePosition = new Vector3(30, 31, 32);
+
+            Assert.That(destinationTestClients.Count, Is.EqualTo(1));
+            Assert.That(destinationTestClients[0], Is.Not.Null);
+
+            InventoryItemBase attItem = CreateAttachmentItem(sceneA, ua1.PrincipalID, "att", 0x10, 0x20);
+
+            sceneA.AttachmentsModule.RezSingleAttachmentFromInventory(
+                beforeTeleportSp, attItem.ID, (uint)AttachmentPoint.Chest);
+
+            Vector3 teleportPosition = new Vector3(10, 11, 12);
+            Vector3 teleportLookAt = new Vector3(20, 21, 22);
+
+            // Here, we need to make clientA's receipt of SendRegionTeleport trigger clientB's CompleteMovement().  This
+            // is to operate the teleport V2 mechanism where the EntityTransferModule will first request the client to
+            // CompleteMovement to the region and then call UpdateAgent to the destination region to confirm the receipt
+            // Both these operations will occur on different threads and will wait for each other.
+            // We have to do this via ThreadPool directly since FireAndForget has been switched to sync for the V1
+            // test protocol, where we are trying to avoid unpredictable async operations in regression tests.
+            tc.OnTestClientSendRegionTeleport 
+                += (regionHandle, simAccess, regionExternalEndPoint, locationID, flags, capsURL) 
+                    => ThreadPool.UnsafeQueueUserWorkItem(o => destinationTestClients[0].CompleteMovement(), null);
+
+            m_numberOfAttachEventsFired = 0;
+            sceneA.RequestTeleportLocation(
+                beforeTeleportSp.ControllingClient,
+                sceneB.RegionInfo.RegionHandle,
+                teleportPosition,
+                teleportLookAt,
+                (uint)TeleportFlags.ViaLocation);
+
+            // Check attachments have made it into sceneB
+            ScenePresence afterTeleportSceneBSp = sceneB.GetScenePresence(ua1.PrincipalID);
+
+            // This is appearance data, as opposed to actually rezzed attachments
+            List<AvatarAttachment> sceneBAttachments = afterTeleportSceneBSp.Appearance.GetAttachments();
+            Assert.That(sceneBAttachments.Count, Is.EqualTo(1));
+            Assert.That(sceneBAttachments[0].AttachPoint, Is.EqualTo((int)AttachmentPoint.Chest));
+            Assert.That(sceneBAttachments[0].ItemID, Is.EqualTo(attItem.ID));
+            Assert.That(sceneBAttachments[0].AssetID, Is.EqualTo(attItem.AssetID));
+            Assert.That(afterTeleportSceneBSp.Appearance.GetAttachpoint(attItem.ID), Is.EqualTo((int)AttachmentPoint.Chest));
+
+            // This is the actual attachment
+            List<SceneObjectGroup> actualSceneBAttachments = afterTeleportSceneBSp.GetAttachments();
+            Assert.That(actualSceneBAttachments.Count, Is.EqualTo(1));
+            SceneObjectGroup actualSceneBAtt = actualSceneBAttachments[0];
+            Assert.That(actualSceneBAtt.Name, Is.EqualTo(attItem.Name));
+            Assert.That(actualSceneBAtt.AttachmentPoint, Is.EqualTo((uint)AttachmentPoint.Chest));
+            Assert.IsFalse(actualSceneBAtt.Backup);
 
             Assert.That(sceneB.GetSceneObjectGroups().Count, Is.EqualTo(1));
 

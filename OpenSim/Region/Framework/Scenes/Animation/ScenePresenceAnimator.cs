@@ -35,7 +35,7 @@ using OpenMetaverse;
 using OpenSim.Framework;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
-using OpenSim.Region.Physics.Manager;
+using OpenSim.Region.PhysicsModules.SharedBase;
 
 namespace OpenSim.Region.Framework.Scenes.Animation
 {
@@ -92,7 +92,10 @@ namespace OpenSim.Region.Framework.Scenes.Animation
                     GetAnimName(animID), animID, m_scenePresence.Name);
 
             if (m_animations.Add(animID, m_scenePresence.ControllingClient.NextAnimationSequenceNumber, objectID))
+            {
                 SendAnimPack();
+                m_scenePresence.TriggerScenePresenceUpdated();
+            }
         }
 
         // Called from scripts
@@ -131,7 +134,10 @@ namespace OpenSim.Region.Framework.Scenes.Animation
                     GetAnimName(animID), animID, m_scenePresence.Name);
 
             if (m_animations.Remove(animID, allowNoDefault))
+            {
                 SendAnimPack();
+                m_scenePresence.TriggerScenePresenceUpdated();
+            }
         }
 
         // Called from scripts
@@ -163,8 +169,10 @@ namespace OpenSim.Region.Framework.Scenes.Animation
         /// The movement animation is reserved for "main" animations
         /// that are mutually exclusive, e.g. flying and sitting.
         /// </summary>
-        public void TrySetMovementAnimation(string anim)
+        /// <returns>'true' if the animation was updated</returns>
+        public bool TrySetMovementAnimation(string anim)
         {
+            bool ret = false;
             if (!m_scenePresence.IsChildAgent)
             {
 //                m_log.DebugFormat(
@@ -181,6 +189,7 @@ namespace OpenSim.Region.Framework.Scenes.Animation
                     // 16384 is CHANGED_ANIMATION
                     m_scenePresence.SendScriptEventToAttachments("changed", new Object[] { (int)Changed.ANIMATION});
                     SendAnimPack();
+                    ret = true;
                 }
             }
             else
@@ -189,6 +198,7 @@ namespace OpenSim.Region.Framework.Scenes.Animation
                     "[SCENE PRESENCE ANIMATOR]: Tried to set movement animation {0} on child presence {1}",
                     anim, m_scenePresence.Name);
             }
+            return ret;
         }
 
         /// <summary>
@@ -393,11 +403,18 @@ namespace OpenSim.Region.Framework.Scenes.Animation
                 Falling = false;
                 // Walking / crouchwalking / running
                 if (move.Z < 0f)
+                {
                     return "CROUCHWALK";
-                else if (m_scenePresence.SetAlwaysRun)
-                    return "RUN";
-                else
-                    return "WALK";
+                }
+                // We need to prevent these animations if the user tries to make their avatar walk or run whilst
+                // specifying AGENT_CONTROL_STOP (pressing down space on viewers).
+                else if (!m_scenePresence.AgentControlStopActive)
+                {
+                    if (m_scenePresence.SetAlwaysRun)
+                        return "RUN";
+                    else
+                        return "WALK";
+                }
             }
             else if (!m_jumping)
             {
@@ -422,8 +439,12 @@ namespace OpenSim.Region.Framework.Scenes.Animation
         /// <summary>
         /// Update the movement animation of this avatar according to its current state
         /// </summary>
-        public void UpdateMovementAnimations()
+        /// <returns>'true' if the animation was changed</returns>
+        public bool UpdateMovementAnimations()
         {
+//            m_log.DebugFormat("[SCENE PRESENCE ANIMATOR]: Updating movement animations for {0}", m_scenePresence.Name);
+
+            bool ret = false;
             lock (m_animations)
             {
                 string newMovementAnimation = DetermineMovementAnimation();
@@ -437,9 +458,10 @@ namespace OpenSim.Region.Framework.Scenes.Animation
 
                     // Only set it if it's actually changed, give a script
                     // a chance to stop a default animation
-                    TrySetMovementAnimation(CurrentMovementAnimation);
+                    ret = TrySetMovementAnimation(CurrentMovementAnimation);
                 }
             }
+            return ret;
         }
 
         public UUID[] GetAnimationArray()

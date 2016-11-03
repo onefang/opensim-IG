@@ -33,7 +33,7 @@ using System.IO;
 using System.Reflection;
 using Nini.Config;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
+
 using OpenSim.Services.Interfaces;
 using OpenMetaverse;
 using Nwc.XmlRpc;
@@ -78,7 +78,7 @@ namespace OpenSim.Services.Connectors
             try
             {
                 uint xpos = 0, ypos = 0;
-                Utils.LongToUInts(regionHandle, out xpos, out ypos);
+                Util.RegionHandleToWorldLoc(regionHandle, out xpos, out ypos);
                 GridRegion info = m_GridService.GetRegionByPosition(scopeID, (int)xpos, (int)ypos);
                 if (info != null) // just to be sure
                 {

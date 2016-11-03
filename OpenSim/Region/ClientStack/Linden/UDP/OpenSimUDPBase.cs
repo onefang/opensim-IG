@@ -78,6 +78,92 @@ namespace OpenMetaverse
         public bool IsRunningOutbound { get; private set; }
 
         /// <summary>
+        /// Number of UDP receives.
+        /// </summary>
+        public int UdpReceives { get; private set; }
+
+        /// <summary>
+        /// Number of UDP sends
+        /// </summary>
+        public int UdpSends { get; private set; }
+
+        /// <summary>
+        /// Number of receives over which to establish a receive time average.
+        /// </summary>
+        private readonly static int s_receiveTimeSamples = 500;
+
+        /// <summary>
+        /// Current number of samples taken to establish a receive time average.
+        /// </summary>
+        private int m_currentReceiveTimeSamples;
+
+        /// <summary>
+        /// Cumulative receive time for the sample so far.
+        /// </summary>
+        private int m_receiveTicksInCurrentSamplePeriod;
+
+        /// <summary>
+        /// The average time taken for each require receive in the last sample.
+        /// </summary>
+        public float AverageReceiveTicksForLastSamplePeriod { get; private set; }
+
+        #region PacketDropDebugging
+        /// <summary>
+        /// For debugging purposes only... random number generator for dropping
+        /// outbound packets.
+        /// </summary>
+        private Random m_dropRandomGenerator = new Random();
+        
+        /// <summary>
+        /// For debugging purposes only... parameters for a simplified
+        /// model of packet loss with bursts, overall drop rate should
+        /// be roughly 1 - m_dropLengthProbability / (m_dropProbabiliy + m_dropLengthProbability)
+        /// which is about 1% for parameters 0.0015 and 0.15
+        /// </summary>
+        private double m_dropProbability = 0.0030;
+        private double m_dropLengthProbability = 0.15;
+        private bool m_dropState = false;
+
+        /// <summary>
+        /// For debugging purposes only... parameters to control the time
+        /// duration over which packet loss bursts can occur, if no packets
+        /// have been sent for m_dropResetTicks milliseconds, then reset the
+        /// state of the packet dropper to its default.
+        /// </summary>
+        private int m_dropLastTick = 0;
+        private int m_dropResetTicks = 500;
+        
+        /// <summary>
+        /// Debugging code used to simulate dropped packets with bursts
+        /// </summary>
+        private bool DropOutgoingPacket()
+        {
+            double rnum = m_dropRandomGenerator.NextDouble();
+
+            // if the connection has been idle for awhile (more than m_dropResetTicks) then
+            // reset the state to the default state, don't continue a burst
+            int curtick = Util.EnvironmentTickCount();
+            if (Util.EnvironmentTickCountSubtract(curtick, m_dropLastTick) > m_dropResetTicks)
+                m_dropState = false;
+
+            m_dropLastTick = curtick;
+
+            // if we are dropping packets, then the probability of dropping
+            // this packet is the probability that we stay in the burst
+            if (m_dropState)
+            {
+                m_dropState = (rnum < (1.0 - m_dropLengthProbability)) ? true : false;
+            }
+            else
+            {
+                m_dropState = (rnum < m_dropProbability) ? true : false;
+            }
+
+            return m_dropState;
+        }
+        #endregion PacketDropDebugging
+
+        /// <summary>
         /// Default constructor
         /// </summary>
         /// <param name="bindAddress">Local IP address to bind the server to</param>
@@ -87,6 +173,10 @@ namespace OpenMetaverse
         {
             m_localBindAddress = bindAddress;
             m_udpPort = port;
+
+            // for debugging purposes only, initializes the random number generator
+            // used for simulating packet loss
+            // m_dropRandomGenerator = new Random();
         }
 
         /// <summary>
@@ -105,12 +195,14 @@ namespace OpenMetaverse
         /// manner (not throwing an exception when the remote side resets the
         /// connection). This call is ignored on Mono where the flag is not
         /// necessary</remarks>
-        public void StartInbound(int recvBufferSize, bool asyncPacketHandling)
+        public virtual void StartInbound(int recvBufferSize, bool asyncPacketHandling)
         {
             m_asyncPacketHandling = asyncPacketHandling;
 
             if (!IsRunningInbound)
             {
+                m_log.DebugFormat("[UDPBASE]: Starting inbound UDP loop");
+
                 const int SIO_UDP_CONNRESET = -1744830452;
 
                 IPEndPoint ipep = new IPEndPoint(m_localBindAddress, m_udpPort);
@@ -126,6 +218,17 @@ namespace OpenMetaverse
 
                 try
                 {
+                    if (m_udpSocket.Ttl < 128)
+                    {
+                        m_udpSocket.Ttl = 128;
+                    }
+                }
+                catch (SocketException)
+                {
+                    m_log.Debug("[UDPBASE]: Failed to increase default TTL");
+                }
+                try
+                {
                     // This udp socket flag is not supported under mono, 
                     // so we'll catch the exception and continue
                     m_udpSocket.IOControl(SIO_UDP_CONNRESET, new byte[] { 0 }, null);
@@ -135,6 +238,12 @@ namespace OpenMetaverse
                 {
                     m_log.Debug("[UDPBASE]: SIO_UDP_CONNRESET flag not supported on this platform, ignoring");
                 }
+
+                // On at least Mono 3.2.8, multiple UDP sockets can bind to the same port by default.  At the moment
+                // we never want two regions to listen on the same port as they cannot demultiplex each other's messages,
+                // leading to a confusing bug.
+                // By default, Windows does not allow two sockets to bind to the same port.
+                m_udpSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
 
                 if (recvBufferSize != 0)
                     m_udpSocket.ReceiveBufferSize = recvBufferSize;
@@ -153,30 +262,32 @@ namespace OpenMetaverse
         /// <summary>
         /// Start outbound UDP packet handling.
         /// </summary>
-        public void StartOutbound()
+        public virtual void StartOutbound()
         {
+            m_log.DebugFormat("[UDPBASE]: Starting outbound UDP loop");
+
             IsRunningOutbound = true;
         }
 
-        public void StopInbound()
+        public virtual void StopInbound()
         {
             if (IsRunningInbound)
             {
-                // wait indefinitely for a writer lock.  Once this is called, the .NET runtime
-                // will deny any more reader locks, in effect blocking all other send/receive
-                // threads.  Once we have the lock, we set IsRunningInbound = false to inform the other
-                // threads that the socket is closed.
+                m_log.DebugFormat("[UDPBASE]: Stopping inbound UDP loop");
+
                 IsRunningInbound = false;
                 m_udpSocket.Close();
             }
         }
 
-        public void StopOutbound()
+        public virtual void StopOutbound()
         {
+            m_log.DebugFormat("[UDPBASE]: Stopping outbound UDP loop");
+
             IsRunningOutbound = false;
         }
 
-        protected virtual bool EnablePools()
+        public virtual bool EnablePools()
         {
             if (!UsePools)
             {
@@ -190,7 +301,7 @@ namespace OpenMetaverse
             return false;
         }
 
-        protected virtual bool DisablePools()
+        public virtual bool DisablePools()
         {
             if (UsePools)
             {
@@ -261,7 +372,16 @@ namespace OpenMetaverse
                         m_log.Warn("[UDPBASE]: Salvaged the UDP listener on port " + m_udpPort);
                     }
                 }
-                catch (ObjectDisposedException) { }
+                catch (ObjectDisposedException e) 
+                { 
+                    m_log.Error(
+                        string.Format("[UDPBASE]: Error processing UDP begin receive {0}.  Exception  ", UdpReceives), e);
+                }
+                catch (Exception e)
+                {
+                    m_log.Error(
+                        string.Format("[UDPBASE]: Error processing UDP begin receive {0}.  Exception  ", UdpReceives), e);
+                }
             }
         }
 
@@ -271,17 +391,21 @@ namespace OpenMetaverse
             // to AsyncBeginReceive
             if (IsRunningInbound)
             {
+                UdpReceives++;
+
                 // Asynchronous mode will start another receive before the
                 // callback for this packet is even fired. Very parallel :-)
                 if (m_asyncPacketHandling)
                     AsyncBeginReceive();
 
-                // get the buffer that was created in AsyncBeginReceive
-                // this is the received data
-                UDPPacketBuffer buffer = (UDPPacketBuffer)iar.AsyncState;
-
                 try
                 {
+                    // get the buffer that was created in AsyncBeginReceive
+                    // this is the received data
+                    UDPPacketBuffer buffer = (UDPPacketBuffer)iar.AsyncState;
+
+                    int startTick = Util.EnvironmentTickCount();
+
                     // get the length of data actually read from the socket, store it with the
                     // buffer
                     buffer.DataLength = m_udpSocket.EndReceiveFrom(iar, ref buffer.RemoteEndPoint);
@@ -289,9 +413,42 @@ namespace OpenMetaverse
                     // call the abstract method PacketReceived(), passing the buffer that
                     // has just been filled from the socket read.
                     PacketReceived(buffer);
+
+                    // If more than one thread can be calling AsyncEndReceive() at once (e.g. if m_asyncPacketHandler)
+                    // then a particular stat may be inaccurate due to a race condition.  We won't worry about this
+                    // since this should be rare and  won't cause a runtime problem.
+                    if (m_currentReceiveTimeSamples >= s_receiveTimeSamples)
+                    {
+                        AverageReceiveTicksForLastSamplePeriod 
+                            = (float)m_receiveTicksInCurrentSamplePeriod / s_receiveTimeSamples;
+
+                        m_receiveTicksInCurrentSamplePeriod = 0;
+                        m_currentReceiveTimeSamples = 0;
+                    }
+                    else
+                    {
+                        m_receiveTicksInCurrentSamplePeriod += Util.EnvironmentTickCountSubtract(startTick);
+                        m_currentReceiveTimeSamples++;
+                    }
                 }
-                catch (SocketException) { }
-                catch (ObjectDisposedException) { }
+                catch (SocketException se) 
+                { 
+                    m_log.Error(
+                        string.Format(
+                            "[UDPBASE]: Error processing UDP end receive {0}, socket error code {1}.  Exception  ", 
+                            UdpReceives, se.ErrorCode), 
+                        se);
+                }
+                catch (ObjectDisposedException e) 
+                { 
+                    m_log.Error(
+                        string.Format("[UDPBASE]: Error processing UDP end receive {0}.  Exception  ", UdpReceives), e);
+                }
+                catch (Exception e)
+                {
+                    m_log.Error(
+                        string.Format("[UDPBASE]: Error processing UDP end receive {0}.  Exception  ", UdpReceives), e);
+                }
                 finally
                 {
 //                    if (UsePools)
@@ -302,14 +459,19 @@ namespace OpenMetaverse
                     if (!m_asyncPacketHandling)
                         AsyncBeginReceive();
                 }
-
             }
         }
 
         public void AsyncBeginSend(UDPPacketBuffer buf)
         {
-            if (IsRunningOutbound)
-            {
+//            if (IsRunningOutbound)
+//            {
+
+                // This is strictly for debugging purposes to simulate dropped
+                // packets when testing throttles & retransmission code
+                // if (DropOutgoingPacket())
+                //     return;
+            
                 try
                 {
                     m_udpSocket.BeginSendTo(
@@ -323,7 +485,7 @@ namespace OpenMetaverse
                 }
                 catch (SocketException) { }
                 catch (ObjectDisposedException) { }
-            }
+//            }
         }
 
         void AsyncEndSend(IAsyncResult result)
@@ -332,6 +494,8 @@ namespace OpenMetaverse
             {
 //                UDPPacketBuffer buf = (UDPPacketBuffer)result.AsyncState;
                 m_udpSocket.EndSendTo(result);
+
+                UdpSends++;
             }
             catch (SocketException) { }
             catch (ObjectDisposedException) { }

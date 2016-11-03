@@ -36,6 +36,7 @@ using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Services.Interfaces;
 using Mono.Addins;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.CoreModules.Avatar.Friends
 {
@@ -180,7 +181,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Friends
             if (folderID == UUID.Zero)
             {
                 InventoryFolderBase folder = inv.GetFolderForType(userID,
-                        AssetType.CallingCard);
+                        FolderType.CallingCard);
 
                 if (folder == null) // Nowhere to put it
                     return UUID.Zero;
@@ -236,7 +237,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Friends
             IInventoryService invService = m_Scenes[0].InventoryService;
 
             InventoryFolderBase trashFolder =
-                    invService.GetFolderForType(client.AgentId, AssetType.TrashFolder);
+                    invService.GetFolderForType(client.AgentId, FolderType.Trash);
 
             InventoryItemBase item = new InventoryItemBase(transactionID, client.AgentId);
             item = invService.GetItem(item);

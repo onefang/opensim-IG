@@ -41,7 +41,6 @@ using OpenMetaverse;
 using OpenMetaverse.StructuredData;
 
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Services.Interfaces;
 
@@ -168,8 +167,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.XmlRpcGroups
                 m_log.DebugFormat("[XMLRPC-GROUPS-CONNECTOR]: Initializing {0}", this.Name);
 
                 m_groupsServerURI = groupsConfig.GetString("GroupsServerURI", string.Empty);
-                if ((m_groupsServerURI == null) ||
-                    (m_groupsServerURI == string.Empty))
+                if (string.IsNullOrEmpty(m_groupsServerURI))
                 {
                     m_log.ErrorFormat("Please specify a valid URL for GroupsServerURI in OpenSim.ini, [Groups]");
                     m_connectorEnabled = false;
@@ -354,7 +352,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.XmlRpcGroups
             {
                 param["GroupID"] = GroupID.ToString();
             }
-            if ((GroupName != null) && (GroupName != string.Empty))
+            if (!string.IsNullOrEmpty(GroupName))
             {
                 param["Name"] = GroupName.ToString();
             }
@@ -1013,7 +1011,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.XmlRpcGroups
                 Hashtable respData = (Hashtable)resp.Value;
                 if (respData.Contains("error") && !respData.Contains("succeed"))
                 {
-                    LogRespDataToConsoleError(respData);
+                    LogRespDataToConsoleError(requestingAgentID, function, param, respData);
                 }
 
                 return respData;
@@ -1041,20 +1039,11 @@ namespace OpenSim.Region.OptionalModules.Avatar.XmlRpcGroups
             return error;
         }
 
-        private void LogRespDataToConsoleError(Hashtable respData)
+        private void LogRespDataToConsoleError(UUID requestingAgentID, string function, Hashtable param, Hashtable respData)
         {
-            m_log.Error("[XMLRPC-GROUPS-CONNECTOR]: Error:");
-
-            foreach (string key in respData.Keys)
-            {
-                m_log.ErrorFormat("[XMLRPC-GROUPS-CONNECTOR]: Key: {0}", key);
-
-                string[] lines = respData[key].ToString().Split(new char[] { '\n' });
-                foreach (string line in lines)
-                {
-                    m_log.ErrorFormat("[XMLRPC-GROUPS-CONNECTOR]: {0}", line);
-                }
-            }
+            m_log.ErrorFormat(
+                "[XMLRPC-GROUPS-CONNECTOR]: Error when calling {0} for {1} with params {2}.  Response params are {3}", 
+                function, requestingAgentID, Util.PrettyFormatToSingleLine(param), Util.PrettyFormatToSingleLine(respData));
         }
 
         /// <summary>
@@ -1146,28 +1135,38 @@ namespace Nwc.XmlRpc
             request.AllowWriteStreamBuffering = true;
             request.KeepAlive = !_disableKeepAlive;
 
-            Stream stream = request.GetRequestStream();
-            XmlTextWriter xml = new XmlTextWriter(stream, Encoding.ASCII);
-            _serializer.Serialize(xml, this);
-            xml.Flush();
-            xml.Close();
+            using (Stream stream = request.GetRequestStream())
+            {
+                using (XmlTextWriter xml = new XmlTextWriter(stream, Encoding.ASCII))
+                {
+                    _serializer.Serialize(xml, this);
+                    xml.Flush();
+                }            
+            }
 
-            HttpWebResponse response = (HttpWebResponse)request.GetResponse();
-            StreamReader input = new StreamReader(response.GetResponseStream());
-
-            string inputXml = input.ReadToEnd();
             XmlRpcResponse resp;
-            try
+
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
             {
-                resp = (XmlRpcResponse)_deserializer.Deserialize(inputXml);
+                using (Stream s = response.GetResponseStream())
+                {
+                    using (StreamReader input = new StreamReader(s))
+                    {
+                        string inputXml = input.ReadToEnd();
+
+                        try
+                        {
+                            resp = (XmlRpcResponse)_deserializer.Deserialize(inputXml);
+                        }
+                        catch (Exception e)
+                        {
+                            RequestResponse = inputXml;
+                            throw e;
+                        }
+                    }
+                }
             }
-            catch (Exception e)
-            {
-                RequestResponse = inputXml;
-                throw e;
-            }
-            input.Close();
-            response.Close();
+
             return resp;
         }
     }

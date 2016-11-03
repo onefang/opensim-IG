@@ -33,7 +33,6 @@ using Nini.Config;
 using NUnit.Framework;
 using OpenMetaverse;
 using OpenSim.Framework;
-using OpenSim.Framework.Communications;
 using OpenSim.Region.CoreModules.Avatar.Attachments;
 using OpenSim.Region.CoreModules.Avatar.AvatarFactory;
 using OpenSim.Region.CoreModules.Framework.InventoryAccess;
@@ -43,7 +42,6 @@ using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Services.AvatarService;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 
 namespace OpenSim.Region.OptionalModules.World.NPC.Tests
 {
@@ -71,11 +69,13 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
             Util.FireAndForgetMethod = Util.DefaultFireAndForgetMethod;
         }
 
-        [SetUp]
-        public void Init()
+        public void SetUpScene()
         {
-            base.SetUp();
+            SetUpScene(256, 256);
+        }
 
+        public void SetUpScene(uint sizeX, uint sizeY)
+        {
             IConfigSource config = new IniConfigSource();
             config.AddConfig("NPC");
             config.Configs["NPC"].Set("Enabled", "true");
@@ -87,7 +87,7 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
             m_attMod = new AttachmentsModule();
             m_npcMod = new NPCModule();
 
-            m_scene = new SceneHelpers().SetupScene();
+            m_scene = new SceneHelpers().SetupScene("test scene", UUID.Random(), 1000, 1000, sizeX, sizeY, config);
             SceneHelpers.SetupSceneModules(m_scene, config, m_afMod, m_umMod, m_attMod, m_npcMod, new BasicInventoryAccessModule());
         }
 
@@ -96,6 +96,8 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
         {
             TestHelpers.InMethod();
 //            log4net.Config.XmlConfigurator.Configure();
+
+            SetUpScene();
 
             ScenePresence sp = SceneHelpers.AddScenePresence(m_scene, TestHelpers.ParseTail(0x1));
 //            ScenePresence originalAvatar = scene.GetScenePresence(originalClient.AgentId);
@@ -110,7 +112,7 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
             // ScenePresence.SendInitialData() to reset our entire appearance.
             m_scene.AssetService.Store(AssetHelpers.CreateNotecardAsset(originalFace8TextureId));
 
-            m_afMod.SetAppearance(sp, originalTe, null);
+            m_afMod.SetAppearance(sp, originalTe, null, null);
 
             UUID npcId = m_npcMod.CreateNPC("John", "Smith", new Vector3(128, 128, 30), UUID.Zero, true, m_scene, sp.Appearance);
 
@@ -132,6 +134,8 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
         {
             TestHelpers.InMethod();
 //            log4net.Config.XmlConfigurator.Configure();
+
+            SetUpScene();
 
             ScenePresence sp = SceneHelpers.AddScenePresence(m_scene, TestHelpers.ParseTail(0x1));
 //            ScenePresence originalAvatar = scene.GetScenePresence(originalClient.AgentId);
@@ -155,7 +159,9 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
         public void TestCreateWithAttachments()
         {
             TestHelpers.InMethod();
-//            log4net.Config.XmlConfigurator.Configure();
+//            TestHelpers.EnableLogging();
+
+            SetUpScene();
 
             UUID userId = TestHelpers.ParseTail(0x1);
             UserAccountHelpers.CreateUserWithInventory(m_scene, userId);
@@ -191,10 +197,65 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
         }
 
         [Test]
+        public void TestCreateWithMultiAttachments()
+        {
+            TestHelpers.InMethod();
+//            TestHelpers.EnableLogging();
+
+            SetUpScene();
+//            m_attMod.DebugLevel = 1;
+
+            UUID userId = TestHelpers.ParseTail(0x1);
+            UserAccountHelpers.CreateUserWithInventory(m_scene, userId);
+            ScenePresence sp = SceneHelpers.AddScenePresence(m_scene, userId);
+
+            InventoryItemBase att1Item 
+                = UserInventoryHelpers.CreateInventoryItem(
+                    m_scene, "att1", TestHelpers.ParseTail(0x2), TestHelpers.ParseTail(0x3), sp.UUID, InventoryType.Object);
+            InventoryItemBase att2Item 
+                = UserInventoryHelpers.CreateInventoryItem(
+                    m_scene, "att2", TestHelpers.ParseTail(0x12), TestHelpers.ParseTail(0x13), sp.UUID, InventoryType.Object);
+
+            m_attMod.RezSingleAttachmentFromInventory(sp, att1Item.ID, (uint)AttachmentPoint.Chest);
+            m_attMod.RezSingleAttachmentFromInventory(sp, att2Item.ID, (uint)AttachmentPoint.Chest | 0x80);
+
+            UUID npcId = m_npcMod.CreateNPC("John", "Smith", new Vector3(128, 128, 30), UUID.Zero, true, m_scene, sp.Appearance);
+
+            ScenePresence npc = m_scene.GetScenePresence(npcId);
+
+            // Check scene presence status
+            Assert.That(npc.HasAttachments(), Is.True);
+            List<SceneObjectGroup> attachments = npc.GetAttachments();
+            Assert.That(attachments.Count, Is.EqualTo(2));
+
+            // Just for now, we won't test the name since this is (wrongly) the asset part name rather than the item
+            // name.  TODO: Do need to fix ultimately since the item may be renamed before being passed on to an NPC.
+//            Assert.That(attSo.Name, Is.EqualTo(attName));
+
+            TestAttachedObject(attachments[0], AttachmentPoint.Chest, npc.UUID);
+            TestAttachedObject(attachments[1], AttachmentPoint.Chest, npc.UUID);
+
+            // Attached objects on the same point must have different FromItemIDs to be shown to other avatars, at least
+            // on Singularity 1.8.5.  Otherwise, only one (the first ObjectUpdate sent) appears.
+            Assert.AreNotEqual(attachments[0].FromItemID, attachments[1].FromItemID);
+        }
+
+        private void TestAttachedObject(SceneObjectGroup attSo, AttachmentPoint attPoint, UUID ownerId)
+        {
+            Assert.That(attSo.AttachmentPoint, Is.EqualTo((byte)attPoint));
+            Assert.That(attSo.IsAttachment);
+            Assert.That(attSo.UsesPhysics, Is.False);
+            Assert.That(attSo.IsTemporary, Is.False);
+            Assert.That(attSo.OwnerID, Is.EqualTo(ownerId));
+        }
+
+        [Test]
         public void TestLoadAppearance()
         {
             TestHelpers.InMethod();
 //            log4net.Config.XmlConfigurator.Configure();
+
+            SetUpScene();
 
             UUID userId = TestHelpers.ParseTail(0x1);
             UserAccountHelpers.CreateUserWithInventory(m_scene, userId);
@@ -237,7 +298,9 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
         public void TestMove()
         {
             TestHelpers.InMethod();
-//            log4net.Config.XmlConfigurator.Configure();
+//            TestHelpers.EnableLogging();
+
+            SetUpScene();
 
             ScenePresence sp = SceneHelpers.AddScenePresence(m_scene, TestHelpers.ParseTail(0x1));
 //            ScenePresence originalAvatar = scene.GetScenePresence(originalClient.AgentId);
@@ -303,10 +366,63 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
         }
 
         [Test]
+        public void TestMoveInVarRegion()
+        {
+            TestHelpers.InMethod();
+//            TestHelpers.EnableLogging();
+
+            SetUpScene(512, 512);
+
+            ScenePresence sp = SceneHelpers.AddScenePresence(m_scene, TestHelpers.ParseTail(0x1));
+//            ScenePresence originalAvatar = scene.GetScenePresence(originalClient.AgentId);
+
+            Vector3 startPos = new Vector3(128, 246, 30);
+            UUID npcId = m_npcMod.CreateNPC("John", "Smith", startPos, UUID.Zero, true, m_scene, sp.Appearance);
+
+            ScenePresence npc = m_scene.GetScenePresence(npcId);
+            Assert.That(npc.AbsolutePosition, Is.EqualTo(startPos));
+
+            // For now, we'll make the scene presence fly to simplify this test, but this needs to change.
+            npc.Flying = true;
+
+            m_scene.Update(1);
+            Assert.That(npc.AbsolutePosition, Is.EqualTo(startPos));
+
+            Vector3 targetPos = startPos + new Vector3(0, 20, 0);
+            m_npcMod.MoveToTarget(npc.UUID, m_scene, targetPos, false, false, false);
+
+            Assert.That(npc.AbsolutePosition, Is.EqualTo(startPos));
+            //Assert.That(npc.Rotation, Is.EqualTo(new Quaternion(0, 0, 0.7071068f, 0.7071068f)));
+            Assert.That(
+                npc.Rotation, new QuaternionToleranceConstraint(new Quaternion(0, 0, 0.7071068f, 0.7071068f), 0.000001));
+
+            m_scene.Update(1);
+
+            // We should really check the exact figure.
+            Assert.That(npc.AbsolutePosition.X, Is.EqualTo(startPos.X));
+            Assert.That(npc.AbsolutePosition.Y, Is.GreaterThan(startPos.Y));
+            Assert.That(npc.AbsolutePosition.Z, Is.EqualTo(startPos.Z));
+            Assert.That(npc.AbsolutePosition.Z, Is.LessThan(targetPos.X));
+
+            for (int i = 0; i < 20; i++)
+            {
+                m_scene.Update(1);
+//                Console.WriteLine("pos: {0}", npc.AbsolutePosition);
+            }
+
+            double distanceToTarget = Util.GetDistanceTo(npc.AbsolutePosition, targetPos);
+            Assert.That(distanceToTarget, Is.LessThan(1), "NPC not within 1 unit of target position on first move");
+            Assert.That(npc.AbsolutePosition, Is.EqualTo(targetPos));
+            Assert.That(npc.AgentControlFlags, Is.EqualTo((uint)AgentManager.ControlFlags.NONE));
+        }
+
+        [Test]
         public void TestSitAndStandWithSitTarget()
         {
             TestHelpers.InMethod();
 //            log4net.Config.XmlConfigurator.Configure();
+
+            SetUpScene();
 
             ScenePresence sp = SceneHelpers.AddScenePresence(m_scene, TestHelpers.ParseTail(0x1));
 
@@ -321,9 +437,9 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
 
             Assert.That(part.SitTargetAvatar, Is.EqualTo(npcId));
             Assert.That(npc.ParentID, Is.EqualTo(part.LocalId));
-            Assert.That(
-                npc.AbsolutePosition,
-                Is.EqualTo(part.AbsolutePosition + part.SitTargetPosition + ScenePresence.SIT_TARGET_ADJUSTMENT));
+//            Assert.That(
+//                npc.AbsolutePosition,
+//                Is.EqualTo(part.AbsolutePosition + part.SitTargetPosition + ScenePresence.SIT_TARGET_ADJUSTMENT));
 
             m_npcMod.Stand(npc.UUID, m_scene);
 
@@ -335,7 +451,9 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
         public void TestSitAndStandWithNoSitTarget()
         {
             TestHelpers.InMethod();
-//            log4net.Config.XmlConfigurator.Configure();
+//            TestHelpers.EnableLogging();
+
+            SetUpScene();
 
             ScenePresence sp = SceneHelpers.AddScenePresence(m_scene, TestHelpers.ParseTail(0x1));
 
@@ -353,13 +471,11 @@ namespace OpenSim.Region.OptionalModules.World.NPC.Tests
             Assert.That(part.SitTargetAvatar, Is.EqualTo(UUID.Zero));
             Assert.That(npc.ParentID, Is.EqualTo(part.LocalId));
 
-            // FIXME: This is different for live avatars - z position is adjusted.  This is half the height of the
-            // default avatar.
-            // Curiously, Vector3.ToString() will not display the last two places of the float.  For example,
-            // printing out npc.AbsolutePosition will give <0, 0, 0.8454993> not <0, 0, 0.845499337>
+            // We should really be using the NPC size but this would mean preserving the physics actor since it is
+            // removed on sit.
             Assert.That(
                 npc.AbsolutePosition,
-                Is.EqualTo(part.AbsolutePosition + new Vector3(0, 0, 0.845499337f)));
+                Is.EqualTo(part.AbsolutePosition + new Vector3(0, 0, sp.PhysicsActor.Size.Z / 2)));
 
             m_npcMod.Stand(npc.UUID, m_scene);
 

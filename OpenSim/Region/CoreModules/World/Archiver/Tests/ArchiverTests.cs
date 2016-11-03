@@ -45,7 +45,6 @@ using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Scenes.Serialization;
 using OpenSim.Region.OptionalModules.Avatar.XmlRpcGroups;
 using OpenSim.Tests.Common;
-using OpenSim.Tests.Common.Mock;
 using ArchiveConstants = OpenSim.Framework.Serialization.ArchiveConstants;
 using TarArchiveReader = OpenSim.Framework.Serialization.TarArchiveReader;
 using TarArchiveWriter = OpenSim.Framework.Serialization.TarArchiveWriter;
@@ -224,8 +223,9 @@ namespace OpenSim.Region.CoreModules.World.Archiver.Tests
 
             byte[] data = tar.ReadEntry(out filePath, out tarEntryType);
             Assert.That(filePath, Is.EqualTo(ArchiveConstants.CONTROL_FILE_PATH));
-            
-            ArchiveReadRequest arr = new ArchiveReadRequest(m_scene, (Stream)null, false, false, Guid.Empty);
+
+            Dictionary<string, object> archiveOptions = new Dictionary<string, object>();
+            ArchiveReadRequest arr = new ArchiveReadRequest(m_scene, (Stream)null, Guid.Empty, archiveOptions);
             arr.LoadControlFile(filePath, data, new DearchiveScenesInfo());
             
             Assert.That(arr.ControlFileLoaded, Is.True);        
@@ -308,8 +308,9 @@ namespace OpenSim.Region.CoreModules.World.Archiver.Tests
 
             byte[] data = tar.ReadEntry(out filePath, out tarEntryType);
             Assert.That(filePath, Is.EqualTo(ArchiveConstants.CONTROL_FILE_PATH));
-            
-            ArchiveReadRequest arr = new ArchiveReadRequest(m_scene, (Stream)null, false, false, Guid.Empty);
+
+            Dictionary<string, object> archiveOptions = new Dictionary<string, object>();
+            ArchiveReadRequest arr = new ArchiveReadRequest(m_scene, (Stream)null, Guid.Empty, archiveOptions);
             arr.LoadControlFile(filePath, data, new DearchiveScenesInfo());
             
             Assert.That(arr.ControlFileLoaded, Is.True);        
@@ -577,13 +578,14 @@ namespace OpenSim.Region.CoreModules.World.Archiver.Tests
                 ArchiveConstants.CONTROL_FILE_PATH,
                 new ArchiveWriteRequest(m_scene, (Stream)null, Guid.Empty).CreateControlFile(new ArchiveScenesGroup()));
 
-            LandObject lo = new LandObject(groupID, true, null);
+            LandObject lo = new LandObject(groupID, true, m_scene);
             lo.SetLandBitmap(lo.BasicFullRegionLandBitmap());
             LandData ld = lo.LandData;
             ld.GlobalID = landID;
 
             string ldPath = ArchiveConstants.CreateOarLandDataPath(ld);
-            tar.WriteFile(ldPath, LandDataSerializer.Serialize(ld, null));
+            Dictionary<string, object> options = new Dictionary<string, object>();
+            tar.WriteFile(ldPath, LandDataSerializer.Serialize(ld, options));
             tar.Close();
 
             oarStream = new MemoryStream(oarStream.ToArray());
@@ -752,7 +754,9 @@ namespace OpenSim.Region.CoreModules.World.Archiver.Tests
                 byte[] archive = archiveWriteStream.ToArray();
                 MemoryStream archiveReadStream = new MemoryStream(archive);
 
-                m_archiverModule.DearchiveRegion(archiveReadStream, true, false, Guid.Empty);
+                Dictionary<string, object> archiveOptions = new Dictionary<string, object>();
+                archiveOptions.Add("merge", null);
+                m_archiverModule.DearchiveRegion(archiveReadStream, Guid.Empty, archiveOptions);
 
                 SceneObjectPart object1Existing = m_scene.GetSceneObjectPart(part1.Name);
                 Assert.That(object1Existing, Is.Not.Null, "object1 was not present after merge");
@@ -860,7 +864,8 @@ namespace OpenSim.Region.CoreModules.World.Archiver.Tests
             byte[] data = tar.ReadEntry(out filePath, out tarEntryType);
             Assert.That(filePath, Is.EqualTo(ArchiveConstants.CONTROL_FILE_PATH));
 
-            ArchiveReadRequest arr = new ArchiveReadRequest(m_scene, (Stream)null, false, false, Guid.Empty);
+            Dictionary<string, object> archiveOptions = new Dictionary<string, object>();
+            ArchiveReadRequest arr = new ArchiveReadRequest(m_scene, (Stream)null, Guid.Empty, archiveOptions);
             arr.LoadControlFile(filePath, data, new DearchiveScenesInfo());
 
             Assert.That(arr.ControlFileLoaded, Is.True);

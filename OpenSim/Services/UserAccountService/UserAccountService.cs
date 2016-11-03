@@ -36,6 +36,7 @@ using OpenSim.Framework;
 using OpenSim.Services.Interfaces;
 using OpenSim.Framework.Console;
 using GridRegion = OpenSim.Services.Interfaces.GridRegion;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Services.UserAccountService
 {
@@ -97,7 +98,12 @@ namespace OpenSim.Services.UserAccountService
                 MainConsole.Instance.Commands.AddCommand("Users", false,
                         "reset user password",
                         "reset user password [<first> [<last> [<password>]]]",
-                        "Reset a user password", HandleResetUserPassword);
+                    "Reset a user password", HandleResetUserPassword);
+
+                MainConsole.Instance.Commands.AddCommand("Users", false,
+                    "reset user email",
+                    "reset user email [<first> [<last> [<email>]]]",
+                    "Reset a user email address", HandleResetUserEmail);
 
                 MainConsole.Instance.Commands.AddCommand("Users", false,
                         "set user level",
@@ -253,6 +259,10 @@ namespace OpenSim.Services.UserAccountService
             }
 
             return MakeUserAccount(d[0]);
+        }
+
+        public void InvalidateCache(UUID userID)
+        {
         }
 
         public bool StoreUserAccount(UserAccount data)
@@ -415,6 +425,43 @@ namespace OpenSim.Services.UserAccountService
                 MainConsole.Instance.OutputFormat("Password reset for user {0} {1}", firstName, lastName);
         }
 
+        protected void HandleResetUserEmail(string module, string[] cmdparams)
+        {
+            string firstName;
+            string lastName;
+            string newEmail;
+
+            if (cmdparams.Length < 4)
+                firstName = MainConsole.Instance.CmdPrompt("First name");
+            else firstName = cmdparams[3];
+
+            if (cmdparams.Length < 5)
+                lastName = MainConsole.Instance.CmdPrompt("Last name");
+            else lastName = cmdparams[4];
+
+            if (cmdparams.Length < 6)
+                newEmail = MainConsole.Instance.PasswdPrompt("New Email");
+            else newEmail = cmdparams[5];
+
+            UserAccount account = GetUserAccount(UUID.Zero, firstName, lastName);
+            if (account == null)
+            {
+                MainConsole.Instance.OutputFormat("No such user as {0} {1}", firstName, lastName);
+                return;
+            }
+
+            bool success = false;
+
+            account.Email = newEmail;
+
+            success = StoreUserAccount(account);
+            if (!success)
+                MainConsole.Instance.OutputFormat("Unable to set Email for account {0} {1}.", firstName, lastName);
+            else
+                MainConsole.Instance.OutputFormat("User Email set for user {0} {1} to {2}", firstName, lastName, account.Email);
+        }
+
+
         protected void HandleSetUserLevel(string module, string[] cmdparams)
         {
             string firstName;
@@ -475,7 +522,6 @@ namespace OpenSim.Services.UserAccountService
                 {
                     account.ServiceURLs = new Dictionary<string, object>();
                     account.ServiceURLs["HomeURI"] = string.Empty;
-                    account.ServiceURLs["GatekeeperURI"] = string.Empty;
                     account.ServiceURLs["InventoryServerURI"] = string.Empty;
                     account.ServiceURLs["AssetServerURI"] = string.Empty;
                 }
@@ -549,7 +595,7 @@ namespace OpenSim.Services.UserAccountService
         {
             m_log.DebugFormat("[USER ACCOUNT SERVICE]: Creating default appearance items for {0}", principalID);
 
-            InventoryFolderBase bodyPartsFolder = m_InventoryService.GetFolderForType(principalID, AssetType.Bodypart);
+            InventoryFolderBase bodyPartsFolder = m_InventoryService.GetFolderForType(principalID, FolderType.BodyPart);
 
             InventoryItemBase eyes = new InventoryItemBase(UUID.Random(), principalID);
             eyes.AssetID = new UUID("4bb6fa4d-1cd2-498a-a84c-95c1a0e745a7");
@@ -611,7 +657,7 @@ namespace OpenSim.Services.UserAccountService
             hair.Flags = (uint)WearableType.Hair;
             m_InventoryService.AddItem(hair);
 
-            InventoryFolderBase clothingFolder = m_InventoryService.GetFolderForType(principalID, AssetType.Clothing);
+            InventoryFolderBase clothingFolder = m_InventoryService.GetFolderForType(principalID, FolderType.Clothing);
 
             InventoryItemBase shirt = new InventoryItemBase(UUID.Random(), principalID);
             shirt.AssetID = AvatarWearable.DEFAULT_SHIRT_ASSET;

@@ -10,7 +10,7 @@ CREATE TABLE `UserAccounts` (
     `Email` VARCHAR(64),
     `ServiceURLs` TEXT,
     `Created` INT(11)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 COMMIT;
 

@@ -81,10 +81,8 @@ namespace OpenSim.Services.HypergridService
                 if (m_UserAccountService == null)
                     throw new Exception(String.Format("Unable to create UserAccountService from {0}", userAccountsDll));
 
-                // legacy configuration [obsolete]
-                m_HomeURL = invConfig.GetString("ProfileServerURI", string.Empty);
-                // Preferred
-                m_HomeURL = invConfig.GetString("HomeURI", m_HomeURL);
+                m_HomeURL = Util.GetConfigVarFromSections<string>(config, "HomeURI",
+                    new string[] { "Startup", "Hypergrid", m_ConfigName }, String.Empty); 
 
                 m_Cache = UserAccountCache.CreateUserAccountCache(m_UserAccountService);
             }
@@ -105,12 +103,6 @@ namespace OpenSim.Services.HypergridService
             return new List<InventoryFolderBase>();
         }
 
-        public override InventoryCollection GetUserInventory(UUID userID)
-        {
-            // NOGO for this inventory service
-            return null;
-        }
-
         public override InventoryFolderBase GetRootFolder(UUID principalID)
         {
             //m_log.DebugFormat("[HG INVENTORY SERVICE]: GetRootFolder for {0}", principalID);
@@ -123,7 +115,7 @@ namespace OpenSim.Services.HypergridService
                 return ConvertToOpenSim(folders[0]);
             
             // make one
-            XInventoryFolder suitcase = CreateFolder(principalID, UUID.Zero, (int)AssetType.Folder, "My Suitcase");
+            XInventoryFolder suitcase = CreateFolder(principalID, UUID.Zero, (int)FolderType.Suitcase, "My Suitcase");
             return ConvertToOpenSim(suitcase);
         }
 
@@ -149,7 +141,7 @@ namespace OpenSim.Services.HypergridService
         //}
 
 
-        public override InventoryFolderBase GetFolderForType(UUID principalID, AssetType type)
+        public override InventoryFolderBase GetFolderForType(UUID principalID, FolderType type)
         {
             //m_log.DebugFormat("[HG INVENTORY SERVICE]: GetFolderForType for {0} {0}", principalID, type);
             return GetRootFolder(principalID);
@@ -161,7 +153,14 @@ namespace OpenSim.Services.HypergridService
         //public InventoryCollection GetFolderContent(UUID principalID, UUID folderID)
         //{
         //}
-     
+
+        // NOGO
+        //
+        public override InventoryCollection[] GetMultipleFoldersContent(UUID principalID, UUID[] folderID)
+        {
+            return new InventoryCollection[0];
+        }
+        
         //public List<InventoryItemBase> GetFolderItems(UUID principalID, UUID folderID)
         //{
         //}
@@ -300,7 +299,7 @@ namespace OpenSim.Services.HypergridService
                 UserAccount user = m_Cache.GetUser(it.CreatorId);
 
                 // Adjust the creator data
-                if (user != null && it != null && (it.CreatorData == null || it.CreatorData == string.Empty))
+                if (user != null && it != null && string.IsNullOrEmpty(it.CreatorData))
                     it.CreatorData = m_HomeURL + ";" + user.FirstName + " " + user.LastName;
             }
             return it;

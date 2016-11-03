@@ -62,6 +62,17 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
         private string m_ThisGatekeeper;
         private bool m_RestrictInventoryAccessAbroad;
 
+        private bool m_bypassPermissions = true;
+
+        // This simple check makes it possible to support grids in which all the simulators
+        // share all central services of the Robust server EXCEPT assets. In other words,
+        // grids where the simulators' assets are kept in one DB and the users' inventory assets
+        // are kept on another. When users rez items from inventory or take objects from world,
+        // an HG-like asset copy takes place between the 2 servers, the world asset server and
+        // the user's asset server.
+        private bool m_CheckSeparateAssets = false;
+        private string m_LocalAssetsURL = string.Empty;
+
 //        private bool m_Initialized = false;
 
         #region INonSharedRegionModule
@@ -88,16 +99,26 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
                     IConfig thisModuleConfig = source.Configs["HGInventoryAccessModule"];
                     if (thisModuleConfig != null)
                     {
-                        // legacy configuration [obsolete]
-                        m_HomeURI = thisModuleConfig.GetString("ProfileServerURI", string.Empty);
-                        // preferred
-                        m_HomeURI = thisModuleConfig.GetString("HomeURI", m_HomeURI);
+                        m_HomeURI = Util.GetConfigVarFromSections<string>(source, "HomeURI",
+                            new string[] { "Startup", "Hypergrid", "HGInventoryAccessModule" }, String.Empty);
+                        m_ThisGatekeeper = Util.GetConfigVarFromSections<string>(source, "GatekeeperURI",
+                            new string[] { "Startup", "Hypergrid", "HGInventoryAccessModule" }, String.Empty);
+                        // Legacy. Renove soon!
+                        m_ThisGatekeeper = thisModuleConfig.GetString("Gatekeeper", m_ThisGatekeeper);
+
                         m_OutboundPermission = thisModuleConfig.GetBoolean("OutboundPermission", true);
-                        m_ThisGatekeeper = thisModuleConfig.GetString("Gatekeeper", string.Empty);
                         m_RestrictInventoryAccessAbroad = thisModuleConfig.GetBoolean("RestrictInventoryAccessAbroad", true);
+                        m_CheckSeparateAssets = thisModuleConfig.GetBoolean("CheckSeparateAssets", false);
+                        m_LocalAssetsURL = thisModuleConfig.GetString("RegionHGAssetServerURI", string.Empty);
+                        m_LocalAssetsURL = m_LocalAssetsURL.Trim(new char[] { '/' });
+
                     }
                     else
                         m_log.Warn("[HG INVENTORY ACCESS MODULE]: HGInventoryAccessModule configs not found. ProfileServerURI not set!");
+
+                    m_bypassPermissions = !Util.GetConfigVarFromSections<bool>(source, "serverside_object_permissions",
+                                            new string[] { "Startup", "Permissions" }, true); 
+
                 }
             }
         }
@@ -109,9 +130,14 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
 
             base.AddRegion(scene);
             m_assMapper = new HGAssetMapper(scene, m_HomeURI);
-            scene.EventManager.OnNewInventoryItemUploadComplete += UploadInventoryItem;
+            scene.EventManager.OnNewInventoryItemUploadComplete += PostInventoryAsset;
             scene.EventManager.OnTeleportStart += TeleportStart;
             scene.EventManager.OnTeleportFail += TeleportFail;
+
+            // We're fgoing to enforce some stricter permissions if Outbound is false
+            scene.Permissions.OnTakeObject += CanTakeObject;
+            scene.Permissions.OnTakeCopyObject += CanTakeObject;
+            scene.Permissions.OnTransferUserInventory += OnTransferUserInventory;
         }
 
         #endregion
@@ -133,7 +159,7 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
                 if (sp is ScenePresence)
                 {
                     AgentCircuitData aCircuit = ((ScenePresence)sp).Scene.AuthenticateHandler.GetAgentCircuitData(client.AgentId);
-                    if ((aCircuit.teleportFlags & (uint)Constants.TeleportFlags.ViaHGLogin) != 0)
+                    if (aCircuit != null &&  (aCircuit.teleportFlags & (uint)Constants.TeleportFlags.ViaHGLogin) != 0)
                     {
                         if (m_RestrictInventoryAccessAbroad)
                         {
@@ -183,8 +209,11 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
             }
         }
 
-        public void UploadInventoryItem(UUID avatarID, UUID assetID, string name, int userlevel)
+        public void PostInventoryAsset(UUID avatarID, AssetType type, UUID assetID, string name, int userlevel)
         {
+            if (type == AssetType.Link)
+                return;
+
             string userAssetServer = string.Empty;
             if (IsForeignUser(avatarID, out userAssetServer) && userAssetServer != string.Empty && m_OutboundPermission)
             {
@@ -219,9 +248,23 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
         {
             UUID newAssetID = base.CapsUpdateInventoryItemAsset(remoteClient, itemID, data);
 
-            UploadInventoryItem(remoteClient.AgentId, newAssetID, "", 0);
+            PostInventoryAsset(remoteClient.AgentId, AssetType.Unknown, newAssetID, "", 0);
 
             return newAssetID;
+        }
+
+        /// 
+        /// UpdateInventoryItemAsset
+        ///
+        public override bool UpdateInventoryItemAsset(UUID ownerID, InventoryItemBase item, AssetBase asset)
+        {
+            if (base.UpdateInventoryItemAsset(ownerID, item, asset))
+            {
+                PostInventoryAsset(ownerID, (AssetType)asset.Type, asset.FullID, asset.Name, 0);
+                return true;
+            }
+
+            return false;
         }
 
         ///
@@ -230,7 +273,7 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
         protected override void ExportAsset(UUID agentID, UUID assetID)
         {
             if (!assetID.Equals(UUID.Zero))
-                UploadInventoryItem(agentID, assetID, "", 0);
+                PostInventoryAsset(agentID, AssetType.Unknown, assetID, "", 0);
             else
                 m_log.Debug("[HGScene]: Scene.Inventory did not create asset");
         }
@@ -242,7 +285,7 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
                                                    UUID RayTargetID, byte BypassRayCast, bool RayEndIsIntersection,
                                                    bool RezSelected, bool RemoveItem, UUID fromTaskID, bool attachment)
         {
-            m_log.DebugFormat("[HGScene] RezObject itemID={0} fromTaskID={1}", itemID, fromTaskID);
+            m_log.DebugFormat("[HGScene]: RezObject itemID={0} fromTaskID={1}", itemID, fromTaskID);
 
             //if (fromTaskID.Equals(UUID.Zero))
             //{
@@ -268,49 +311,97 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
             SceneObjectGroup sog = base.RezObject(remoteClient, itemID, RayEnd, RayStart, RayTargetID, BypassRayCast, RayEndIsIntersection,
                                    RezSelected, RemoveItem, fromTaskID, attachment);
 
-            if (sog == null)
-                remoteClient.SendAgentAlertMessage("Unable to rez: problem accessing inventory or locating assets", false);
-
             return sog;
 
         }
 
         public override void TransferInventoryAssets(InventoryItemBase item, UUID sender, UUID receiver)
         {
-            string userAssetServer = string.Empty;
-            if (IsForeignUser(sender, out userAssetServer) && userAssetServer != string.Empty)
-                m_assMapper.Get(item.AssetID, sender, userAssetServer);
+            string senderAssetServer = string.Empty;
+            string receiverAssetServer = string.Empty;
+            bool isForeignSender, isForeignReceiver;
+            isForeignSender = IsForeignUser(sender, out senderAssetServer);
+            isForeignReceiver = IsForeignUser(receiver, out receiverAssetServer);
 
-            if (IsForeignUser(receiver, out userAssetServer) && userAssetServer != string.Empty && m_OutboundPermission)
-                m_assMapper.Post(item.AssetID, receiver, userAssetServer);
+            // They're both local. Nothing to do.
+            if (!isForeignSender && !isForeignReceiver)
+                return;
+
+            // At least one of them is foreign.
+            // If both users have the same asset server, no need to transfer the asset
+            if (senderAssetServer.Equals(receiverAssetServer))
+            {
+                m_log.DebugFormat("[HGScene]: Asset transfer between foreign users, but they have the same server. No transfer.");
+                return;
+            }
+
+            if (isForeignSender && senderAssetServer != string.Empty)
+                m_assMapper.Get(item.AssetID, sender, senderAssetServer);
+
+            if (isForeignReceiver && receiverAssetServer != string.Empty && m_OutboundPermission)
+                m_assMapper.Post(item.AssetID, receiver, receiverAssetServer);
         }
 
         public override bool IsForeignUser(UUID userID, out string assetServerURL)
         {
             assetServerURL = string.Empty;
 
-            if (UserManagementModule != null && !UserManagementModule.IsLocalGridUser(userID))
-            { // foreign 
-                ScenePresence sp = null;
-                if (m_Scene.TryGetScenePresence(userID, out sp))
+            if (UserManagementModule != null)
+            {
+                if (!m_CheckSeparateAssets)
                 {
-                    AgentCircuitData aCircuit = m_Scene.AuthenticateHandler.GetAgentCircuitData(sp.ControllingClient.CircuitCode);
-                    if (aCircuit.ServiceURLs.ContainsKey("AssetServerURI"))
-                    {
-                        assetServerURL = aCircuit.ServiceURLs["AssetServerURI"].ToString();
-                        assetServerURL = assetServerURL.Trim(new char[] { '/' }); 
+                    if (!UserManagementModule.IsLocalGridUser(userID))
+                    { // foreign 
+                        ScenePresence sp = null;
+                        if (m_Scene.TryGetScenePresence(userID, out sp))
+                        {
+                            AgentCircuitData aCircuit = m_Scene.AuthenticateHandler.GetAgentCircuitData(sp.ControllingClient.CircuitCode);
+                            if (aCircuit != null && aCircuit.ServiceURLs != null && aCircuit.ServiceURLs.ContainsKey("AssetServerURI"))
+                            {
+                                assetServerURL = aCircuit.ServiceURLs["AssetServerURI"].ToString();
+                                assetServerURL = assetServerURL.Trim(new char[] { '/' });
+                            }
+                        }
+                        else
+                        {
+                            assetServerURL = UserManagementModule.GetUserServerURL(userID, "AssetServerURI");
+                            assetServerURL = assetServerURL.Trim(new char[] { '/' });
+                        }
+                        return true;
                     }
                 }
                 else
                 {
-                    assetServerURL = UserManagementModule.GetUserServerURL(userID, "AssetServerURI");
-                    assetServerURL = assetServerURL.Trim(new char[] { '/' });
+                    if (IsLocalInventoryAssetsUser(userID, out assetServerURL))
+                    {
+                        m_log.DebugFormat("[HGScene]: user {0} has local assets {1}", userID, assetServerURL);
+                        return false;
+                    }
+                    else
+                    {
+                        m_log.DebugFormat("[HGScene]: user {0} has foreign assets {1}", userID, assetServerURL);
+                        return true;
+                    }
                 }
-                return true;
             }
-
             return false;
         }
+
+        private bool IsLocalInventoryAssetsUser(UUID uuid, out string assetsURL)
+        {
+            assetsURL = UserManagementModule.GetUserServerURL(uuid, "AssetServerURI");
+            if (assetsURL == string.Empty)
+            {
+                AgentCircuitData agent = m_Scene.AuthenticateHandler.GetAgentCircuitData(uuid);
+                if (agent != null)
+                {
+                    assetsURL = agent.ServiceURLs["AssetServerURI"].ToString();
+                    assetsURL = assetsURL.Trim(new char[] { '/' });
+                }
+            }
+            return m_LocalAssetsURL.Equals(assetsURL);
+        }
+
 
         protected override InventoryItemBase GetItem(UUID agentID, UUID itemID)
         {
@@ -346,7 +437,15 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
                     InventoryFolderBase root = m_Scene.InventoryService.GetRootFolder(client.AgentId);
                     InventoryCollection content = m_Scene.InventoryService.GetFolderContent(client.AgentId, root.ID);
 
-                    inv.SendBulkUpdateInventory(content.Folders.ToArray(), content.Items.ToArray());
+                    List<InventoryFolderBase> keep = new List<InventoryFolderBase>();
+
+                    foreach (InventoryFolderBase f in content.Folders)
+                    {
+                        if (f.Name != "My Suitcase" && f.Name != "Current Outfit")
+                            keep.Add(f);
+                    }
+
+                    inv.SendBulkUpdateInventory(keep.ToArray(), content.Items.ToArray());
                 }
             }
         }
@@ -379,7 +478,7 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
 
                         foreach (InventoryFolderBase f in content.Folders)
                         {
-                            if (f.Name != "My Suitcase")
+                            if (f.Name != "My Suitcase" && f.Name != "Current Outfit")
                             {
                                 f.Name = f.Name + " (Unavailable)";
                                 keep.Add(f);
@@ -402,6 +501,37 @@ namespace OpenSim.Region.CoreModules.Framework.InventoryAccess
         {
             // No-op for now
         }
+
+        #endregion
+
+        #region Permissions
+
+        private bool CanTakeObject(UUID objectID, UUID stealer, Scene scene)
+        {
+            if (m_bypassPermissions) return true;
+
+            if (!m_OutboundPermission && !UserManagementModule.IsLocalGridUser(stealer))
+            {
+                SceneObjectGroup sog = null;
+                if (m_Scene.TryGetSceneObjectGroup(objectID, out sog) && sog.OwnerID == stealer)
+                    return true;
+
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool OnTransferUserInventory(UUID itemID, UUID userID, UUID recipientID)
+        {
+            if (m_bypassPermissions) return true;
+
+            if (!m_OutboundPermission && !UserManagementModule.IsLocalGridUser(recipientID))
+                return false;
+
+            return true;
+        }
+
 
         #endregion
     }

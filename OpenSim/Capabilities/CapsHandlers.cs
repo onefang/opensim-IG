@@ -39,7 +39,7 @@ namespace OpenSim.Framework.Capabilities
     /// </summary>
     public class CapsHandlers
     {
-        private Dictionary <string, IRequestHandler> m_capsHandlers = new Dictionary<string, IRequestHandler>();
+        private Dictionary<string, IRequestHandler> m_capsHandlers = new Dictionary<string, IRequestHandler>();
         private IHttpServer m_httpListener;
         private string m_httpListenerHostName;
         private uint m_httpListenerPort;
@@ -158,7 +158,7 @@ namespace OpenSim.Framework.Capabilities
         /// capabilities and their handler details.
         /// </summary>
         /// <param name="excludeSeed">If true, then exclude the seed cap.</param>
-        public Hashtable GetCapsDetails(bool excludeSeed)
+        public Hashtable GetCapsDetails(bool excludeSeed, List<string> requestedCaps)
         {
             Hashtable caps = new Hashtable();
             string protocol = "http://";
@@ -175,11 +175,26 @@ namespace OpenSim.Framework.Capabilities
                     if (excludeSeed && "SEED" == capsName)
                         continue;
 
+                    if (requestedCaps != null && !requestedCaps.Contains(capsName))
+                        continue;
+
                     caps[capsName] = baseUrl + m_capsHandlers[capsName].Path;
                 }
             }
 
             return caps;
+        }
+
+        /// <summary>
+        /// Returns a copy of the dictionary of all the HTTP cap handlers
+        /// </summary>
+        /// <returns>
+        /// The dictionary copy.  The key is the capability name, the value is the HTTP handler.
+        /// </returns>
+        public Dictionary<string, IRequestHandler> GetCapsHandlers()
+        {
+            lock (m_capsHandlers)
+                return new Dictionary<string, IRequestHandler>(m_capsHandlers);
         }
     }
 }

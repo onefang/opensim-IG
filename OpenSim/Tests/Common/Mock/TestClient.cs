@@ -38,7 +38,7 @@ using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Framework.Client;
 
-namespace OpenSim.Tests.Common.Mock
+namespace OpenSim.Tests.Common
 {
     public class TestClient : IClientAPI, IClientCore
     {
@@ -46,12 +46,10 @@ namespace OpenSim.Tests.Common.Mock
 
         EventWaitHandle wh = new EventWaitHandle (false, EventResetMode.AutoReset, "Crossing");
 
-        private TestClient TeleportSceneClient;
-
         private Scene m_scene;
-        private SceneManager m_sceneManager;
 
         // Properties so that we can get at received data for test purposes
+        public List<uint> ReceivedKills { get; private set; }
         public List<UUID> ReceivedOfflineNotifications { get; private set; }
         public List<UUID> ReceivedOnlineNotifications { get; private set; }
         public List<UUID> ReceivedFriendshipTerminations { get; private set; }
@@ -59,6 +57,27 @@ namespace OpenSim.Tests.Common.Mock
         public List<ImageDataPacket> SentImageDataPackets { get; private set; }
         public List<ImagePacketPacket> SentImagePacketPackets { get; private set; }
         public List<ImageNotInDatabasePacket> SentImageNotInDatabasePackets { get; private set; }
+
+        // Test client specific events - for use by tests to implement some IClientAPI behaviour.
+        public event Action<RegionInfo, Vector3, Vector3> OnReceivedMoveAgentIntoRegion;
+        public event Action<ulong, IPEndPoint> OnTestClientInformClientOfNeighbour;
+        public event TestClientOnSendRegionTeleportDelegate OnTestClientSendRegionTeleport;
+
+        public event Action<ISceneEntity, PrimUpdateFlags> OnReceivedEntityUpdate;
+
+        public event OnReceivedChatMessageDelegate OnReceivedChatMessage;
+        public event Action<GridInstantMessage> OnReceivedInstantMessage;
+
+        public event Action<UUID> OnReceivedSendRebakeAvatarTextures;
+
+        public delegate void TestClientOnSendRegionTeleportDelegate(
+            ulong regionHandle, byte simAccess, IPEndPoint regionExternalEndPoint,
+            uint locationID, uint flags, string capsURL);
+
+        public delegate void OnReceivedChatMessageDelegate(
+            string message, byte type, Vector3 fromPos, string fromName,
+            UUID fromAgentID, UUID ownerID, byte source, byte audible);
+
 
 // disable warning: public events, part of the public API
 #pragma warning disable 67
@@ -103,6 +122,7 @@ namespace OpenSim.Tests.Common.Mock
         public event Action<IClientAPI, bool> OnCompleteMovementToRegion;
         public event UpdateAgent OnPreAgentUpdate;
         public event UpdateAgent OnAgentUpdate;
+        public event UpdateAgent OnAgentCameraUpdate;
         public event AgentRequestSit OnAgentRequestSit;
         public event AgentSit OnAgentSit;
         public event AvatarPickerRequest OnAvatarPickerRequest;
@@ -193,6 +213,7 @@ namespace OpenSim.Tests.Common.Mock
         public event EstateCovenantRequest OnEstateCovenantRequest;
         public event EstateChangeInfo OnEstateChangeInfo;
         public event EstateManageTelehub OnEstateManageTelehub;
+        public event CachedTextureRequest OnCachedTextureRequest;
 
         public event ObjectDuplicateOnRay OnObjectDuplicateOnRay;
 
@@ -430,33 +451,21 @@ namespace OpenSim.Tests.Common.Mock
         /// <summary>
         /// Constructor
         /// </summary>
-        /// <remarks>
-        /// Can be used for a test where there is only one region or where there are multiple regions that are not
-        /// neighbours and where no teleporting takes place.  In other situations, the constructor that takes in a
-        /// scene manager should be used.
-        /// </remarks>
-        /// <param name="agentData"></param>
-        /// <param name="scene"></param>
-        public TestClient(AgentCircuitData agentData, Scene scene) : this(agentData, scene, null) {}
-
-        /// <summary>
-        /// Constructor
-        /// </summary>
         /// <param name="agentData"></param>
         /// <param name="scene"></param>
         /// <param name="sceneManager"></param>
-        public TestClient(AgentCircuitData agentData, Scene scene, SceneManager sceneManager)
+        public TestClient(AgentCircuitData agentData, Scene scene)
         {
             m_agentId = agentData.AgentID;
             m_firstName = agentData.firstname;
             m_lastName = agentData.lastname;
             m_circuitCode = agentData.circuitcode;
             m_scene = scene;
-            m_sceneManager = sceneManager;
             SessionId = agentData.SessionID;
             SecureSessionId = agentData.SecureSessionID;
             CapsSeedUrl = agentData.CapsPath;
 
+            ReceivedKills = new List<uint>();
             ReceivedOfflineNotifications = new List<UUID>();
             ReceivedOnlineNotifications = new List<UUID>();
             ReceivedFriendshipTerminations = new List<UUID>();
@@ -464,6 +473,34 @@ namespace OpenSim.Tests.Common.Mock
             SentImageDataPackets = new List<ImageDataPacket>();
             SentImagePacketPackets = new List<ImagePacketPacket>();
             SentImageNotInDatabasePackets = new List<ImageNotInDatabasePacket>();
+        }
+
+        /// <summary>
+        /// Trigger chat coming from this connection.
+        /// </summary>
+        /// <param name="channel"></param>
+        /// <param name="type"></param>
+        /// <param name="message"></param>
+        public bool Chat(int channel, ChatTypeEnum type, string message)
+        {
+            ChatMessage handlerChatFromClient = OnChatFromClient;
+
+            if (handlerChatFromClient != null)
+            {
+                OSChatMessage args = new OSChatMessage();
+                args.Channel = channel;
+                args.From = Name;
+                args.Message = message;
+                args.Type = type;
+
+                args.Scene = Scene;
+                args.Sender = this;
+                args.SenderUUID = AgentId;
+
+                handlerChatFromClient(this, args);
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -479,7 +516,20 @@ namespace OpenSim.Tests.Common.Mock
 
         public void CompleteMovement()
         {
-            OnCompleteMovementToRegion(this, true);
+            if (OnCompleteMovementToRegion != null)
+                OnCompleteMovementToRegion(this, true);
+        }
+
+        /// <summary>
+        /// Emulate sending an IM from the viewer to the simulator.
+        /// </summary>
+        /// <param name='im'></param>
+        public void HandleImprovedInstantMessage(GridInstantMessage im)
+        {
+            ImprovedInstantMessage handlerInstantMessage = OnInstantMessage;
+
+            if (handlerInstantMessage != null)
+                handlerInstantMessage(this, im);
         }
 
         public virtual void ActivateGesture(UUID assetId, UUID gestureId)
@@ -492,6 +542,11 @@ namespace OpenSim.Tests.Common.Mock
 
         public virtual void SendAppearance(UUID agentID, byte[] visualParams, byte[] textureEntry)
         {
+        }
+
+        public void SendCachedTextureResponse(ISceneEntity avatar, int serial, List<CachedTextureResponseArg> cachedTextures)
+        {
+
         }
 
         public virtual void Kick(string message)
@@ -508,21 +563,21 @@ namespace OpenSim.Tests.Common.Mock
 
         public virtual void SendAgentDataUpdate(UUID agentid, UUID activegroupid, string firstname, string lastname, ulong grouppowers, string groupname, string grouptitle)
         {
-
         }
 
-        public virtual void SendKillObject(ulong regionHandle, List<uint> localID)
+        public virtual void SendKillObject(List<uint> localID)
         {
+            ReceivedKills.AddRange(localID);
         }
 
         public virtual void SetChildAgentThrottle(byte[] throttle)
         {
         }
+
         public byte[] GetThrottlesPacked(float multiplier)
         {
             return new byte[0];
         }
-
 
         public virtual void SendAnimations(UUID[] animations, int[] seqs, UUID sourceAgentId, UUID[] objectIDs)
         {
@@ -532,19 +587,23 @@ namespace OpenSim.Tests.Common.Mock
             string message, byte type, Vector3 fromPos, string fromName,
             UUID fromAgentID, UUID ownerID, byte source, byte audible)
         {
+//            Console.WriteLine("mmm {0} {1} {2}", message, Name, AgentId);
+            if (OnReceivedChatMessage != null)
+                OnReceivedChatMessage(message, type, fromPos, fromName, fromAgentID, ownerID, source, audible);
         }
 
         public void SendInstantMessage(GridInstantMessage im)
         {
-
+            if (OnReceivedInstantMessage != null)
+                OnReceivedInstantMessage(im);
         }
 
-        public void SendGenericMessage(string method, List<string> message)
+        public void SendGenericMessage(string method, UUID invoice, List<string> message)
         {
 
         }
 
-        public void SendGenericMessage(string method, List<byte[]> message)
+        public void SendGenericMessage(string method, UUID invoice, List<byte[]> message)
         {
 
         }
@@ -566,13 +625,15 @@ namespace OpenSim.Tests.Common.Mock
 
         public virtual void MoveAgentIntoRegion(RegionInfo regInfo, Vector3 pos, Vector3 look)
         {
+            if (OnReceivedMoveAgentIntoRegion != null)
+                OnReceivedMoveAgentIntoRegion(regInfo, pos, look);
         }
 
         public virtual AgentCircuitData RequestClientInfo()
         {
             AgentCircuitData agentData = new AgentCircuitData();
             agentData.AgentID = AgentId;
-            agentData.SessionID = UUID.Zero;
+            agentData.SessionID = SessionId; 
             agentData.SecureSessionID = UUID.Zero;
             agentData.circuitcode = m_circuitCode;
             agentData.child = false;
@@ -591,46 +652,29 @@ namespace OpenSim.Tests.Common.Mock
 
         public virtual void InformClientOfNeighbour(ulong neighbourHandle, IPEndPoint neighbourExternalEndPoint)
         {
-            m_log.DebugFormat("[TEST CLIENT]: Processing inform client of neighbour");
-
-            // In response to this message, we are going to make a teleport to the scene we've previous been told
-            // about by test code (this needs to be improved).
-            AgentCircuitData newAgent = RequestClientInfo();
-
-            // Stage 2: add the new client as a child agent to the scene
-            uint x, y;
-            Utils.LongToUInts(neighbourHandle, out x, out y);
-            x /= Constants.RegionSize;
-            y /= Constants.RegionSize;
-
-            Scene neighbourScene;
-            m_sceneManager.TryGetScene(x, y, out neighbourScene);
-
-            TeleportSceneClient = new TestClient(newAgent, neighbourScene, m_sceneManager);
-            neighbourScene.AddNewClient(TeleportSceneClient, PresenceType.User);
+            if (OnTestClientInformClientOfNeighbour != null)
+                OnTestClientInformClientOfNeighbour(neighbourHandle, neighbourExternalEndPoint);
         }
 
-        public virtual void SendRegionTeleport(ulong regionHandle, byte simAccess, IPEndPoint regionExternalEndPoint,
-                                               uint locationID, uint flags, string capsURL)
+        public virtual void SendRegionTeleport(
+            ulong regionHandle, byte simAccess, IPEndPoint regionExternalEndPoint,
+            uint locationID, uint flags, string capsURL)
         {
-            m_log.DebugFormat("[TEST CLIENT]: Received SendRegionTeleport");
+            m_log.DebugFormat(
+                "[TEST CLIENT]: Received SendRegionTeleport for {0} {1} on {2}", m_firstName, m_lastName, m_scene.Name);
 
             CapsSeedUrl = capsURL;
 
-            // We don't do this here so that the source region can complete processing first in a single-threaded
-            // regression test scenario.  The test itself will have to call CompleteTeleportClientSide() after a teleport
-            // CompleteTeleportClientSide();
-        }
-
-        public void CompleteTeleportClientSide()
-        {
-            TeleportSceneClient.CompleteMovement();
-            //TeleportTargetScene.AgentCrossing(newAgent.AgentID, new Vector3(90, 90, 90), false);
+            if (OnTestClientSendRegionTeleport != null)
+                OnTestClientSendRegionTeleport(
+                    regionHandle, simAccess, regionExternalEndPoint, locationID, flags, capsURL);
         }
 
         public virtual void SendTeleportFailed(string reason)
         {
-            m_log.DebugFormat("[TEST CLIENT]: Teleport failed with reason {0}", reason);
+            m_log.DebugFormat(
+                "[TEST CLIENT]: Teleport failed for {0} {1} on {2} with reason {3}", 
+                m_firstName, m_lastName, m_scene.Name, reason);
         }
 
         public virtual void CrossRegion(ulong newRegionHandle, Vector3 pos, Vector3 lookAt,
@@ -660,7 +704,7 @@ namespace OpenSim.Tests.Common.Mock
         {
         }
 
-        public virtual void SendMoneyBalance(UUID transaction, bool success, byte[] description, int balance)
+        public virtual void SendMoneyBalance(UUID transaction, bool success, byte[] description, int balance, int transactionType, UUID sourceID, bool sourceIsGroup, UUID destID, bool destIsGroup, int amount, string item)
         {
         }
 
@@ -682,6 +726,8 @@ namespace OpenSim.Tests.Common.Mock
 
         public void SendEntityUpdate(ISceneEntity entity, PrimUpdateFlags updateFlags)
         {
+            if (OnReceivedEntityUpdate != null)
+                OnReceivedEntityUpdate(entity, updateFlags);
         }
 
         public void ReprioritizeUpdates()
@@ -786,11 +832,6 @@ namespace OpenSim.Tests.Common.Mock
             {
                 OnRegionHandShakeReply(this);
             }
-
-            if (OnCompleteMovementToRegion != null)
-            {
-                OnCompleteMovementToRegion(this, true);
-            }
         }
         
         public void SendAssetUploadCompleteMessage(sbyte AssetType, bool Success, UUID AssetFullID)
@@ -882,11 +923,6 @@ namespace OpenSim.Tests.Common.Mock
         public void SendGroupMembership(GroupMembershipData[] GroupMembership)
         {
 
-        }
-
-        public bool AddMoney(int debit)
-        {
-            return false;
         }
 
         public void SendSunPos(Vector3 sunPos, Vector3 sunVel, ulong time, uint dlen, uint ylen, float phase)
@@ -1235,6 +1271,8 @@ namespace OpenSim.Tests.Common.Mock
 
         public void SendRebakeAvatarTextures(UUID textureID)
         {
+            if (OnReceivedSendRebakeAvatarTextures != null)
+                OnReceivedSendRebakeAvatarTextures(textureID);
         }
         
         public void SendAvatarInterestsReply(UUID avatarID, uint wantMask, string wantText, uint skillsMask, string skillsText, string languages)
@@ -1269,12 +1307,17 @@ namespace OpenSim.Tests.Common.Mock
         {
         }
 
-        public void StopFlying(ISceneEntity presence)
+        public void SendAgentTerseUpdate(ISceneEntity presence)
         {
         }
 
         public void SendPlacesReply(UUID queryID, UUID transactionID, PlacesReplyData[] data)
         {
         }
+
+        public void SendPartPhysicsProprieties(ISceneEntity entity)
+        {
+        }
+
     }
 }

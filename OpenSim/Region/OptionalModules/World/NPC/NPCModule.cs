@@ -116,7 +116,8 @@ namespace OpenSim.Region.OptionalModules.World.NPC
                     return false;
 
             // Delete existing npc attachments
-            scene.AttachmentsModule.DeleteAttachmentsFromScene(npc, false);
+            if(scene.AttachmentsModule != null)
+                scene.AttachmentsModule.DeleteAttachmentsFromScene(npc, false);
 
             // XXX: We can't just use IAvatarFactoryModule.SetAppearance() yet
             // since it doesn't transfer attachments
@@ -125,7 +126,8 @@ namespace OpenSim.Region.OptionalModules.World.NPC
             npc.Appearance = npcAppearance;
 
             // Rez needed npc attachments
-            scene.AttachmentsModule.RezAttachments(npc);
+            if (scene.AttachmentsModule != null)
+                scene.AttachmentsModule.RezAttachments(npc);
 
             IAvatarFactoryModule module =
                     scene.RequestModuleInterface<IAvatarFactoryModule>();
@@ -138,15 +140,37 @@ namespace OpenSim.Region.OptionalModules.World.NPC
                 Vector3 position, UUID owner, bool senseAsAgent, Scene scene,
                 AvatarAppearance appearance)
         {
-            NPCAvatar npcAvatar = new NPCAvatar(firstname, lastname, position,
-                    owner, senseAsAgent, scene);
+            return CreateNPC(firstname, lastname, position, UUID.Zero, owner, senseAsAgent, scene, appearance);
+        }
+
+        public UUID CreateNPC(string firstname, string lastname,
+                Vector3 position, UUID agentID, UUID owner, bool senseAsAgent, Scene scene,
+                AvatarAppearance appearance)
+        {
+            NPCAvatar npcAvatar = null;
+
+            try
+            {
+                if (agentID == UUID.Zero)
+                    npcAvatar = new NPCAvatar(firstname, lastname, position,
+                            owner, senseAsAgent, scene);
+                else
+                    npcAvatar = new NPCAvatar(firstname, lastname, agentID, position,
+                        owner, senseAsAgent, scene);
+            }
+            catch (Exception e)
+            {
+                m_log.Info("[NPC MODULE]: exception creating NPC avatar: " + e.ToString());
+                return UUID.Zero;
+            }
+
             npcAvatar.CircuitCode = (uint)Util.RandomClass.Next(0,
                     int.MaxValue);
 
             m_log.DebugFormat(
-                    "[NPC MODULE]: Creating NPC {0} {1} {2}, owner={3}, senseAsAgent={4} at {5} in {6}",
-                    firstname, lastname, npcAvatar.AgentId, owner,
-                    senseAsAgent, position, scene.RegionInfo.RegionName);
+                "[NPC MODULE]: Creating NPC {0} {1} {2}, owner={3}, senseAsAgent={4} at {5} in {6}",
+                firstname, lastname, npcAvatar.AgentId, owner,
+                senseAsAgent, position, scene.RegionInfo.RegionName);
 
             AgentCircuitData acd = new AgentCircuitData();
             acd.AgentID = npcAvatar.AgentId;
@@ -154,8 +178,7 @@ namespace OpenSim.Region.OptionalModules.World.NPC
             acd.lastname = lastname;
             acd.ServiceURLs = new Dictionary<string, object>();
 
-            AvatarAppearance npcAppearance = new AvatarAppearance(appearance,
-                    true);
+            AvatarAppearance npcAppearance = new AvatarAppearance(appearance, true);
             acd.Appearance = npcAppearance;
 
             /*
@@ -173,7 +196,7 @@ namespace OpenSim.Region.OptionalModules.World.NPC
             {
                 scene.AuthenticateHandler.AddNewCircuit(npcAvatar.CircuitCode,
                         acd);
-                scene.AddNewClient(npcAvatar, PresenceType.Npc);
+                scene.AddNewAgent(npcAvatar, PresenceType.Npc);
 
                 ScenePresence sp;
                 if (scene.TryGetScenePresence(npcAvatar.AgentId, out sp))
@@ -186,16 +209,16 @@ namespace OpenSim.Region.OptionalModules.World.NPC
 
                     sp.CompleteMovement(npcAvatar, false);
                     m_avatars.Add(npcAvatar.AgentId, npcAvatar);
-                    m_log.DebugFormat("[NPC MODULE]: Created NPC {0} {1}",
-                            npcAvatar.AgentId, sp.Name);
+                    m_log.DebugFormat("[NPC MODULE]: Created NPC {0} {1}", npcAvatar.AgentId, sp.Name);
 
                     return npcAvatar.AgentId;
                 }
                 else
                 {
                     m_log.WarnFormat(
-                            "[NPC MODULE]: Could not find scene presence for NPC {0} {1}",
-                            sp.Name, sp.UUID);
+                        "[NPC MODULE]: Could not find scene presence for NPC {0} {1}",
+                        sp.Name, sp.UUID);
+
                     return UUID.Zero;
                 }
             }
@@ -211,12 +234,13 @@ namespace OpenSim.Region.OptionalModules.World.NPC
                     ScenePresence sp;
                     if (scene.TryGetScenePresence(agentID, out sp))
                     {
-                        /*
-                        m_log.DebugFormat(
-                                "[NPC MODULE]: Moving {0} to {1} in {2}, noFly {3}, landAtTarget {4}",
-                                sp.Name, pos, scene.RegionInfo.RegionName,
-                                noFly, landAtTarget);
-                        */
+                        if (sp.IsSatOnObject || sp.SitGround)
+                            return false;
+
+//                        m_log.DebugFormat(
+//                                "[NPC MODULE]: Moving {0} to {1} in {2}, noFly {3}, landAtTarget {4}",
+//                                sp.Name, pos, scene.RegionInfo.RegionName,
+//                                noFly, landAtTarget);
 
                         sp.MoveToTarget(pos, noFly, landAtTarget);
                         sp.SetAlwaysRun = running;
@@ -293,9 +317,7 @@ namespace OpenSim.Region.OptionalModules.World.NPC
                     ScenePresence sp;
                     if (scene.TryGetScenePresence(agentID, out sp))
                     {
-                        sp.HandleAgentRequestSit(m_avatars[agentID], agentID,
-                                partID, Vector3.Zero);
-                        //sp.HandleAgentSit(m_avatars[agentID], agentID);
+                        sp.HandleAgentRequestSit(m_avatars[agentID], agentID, partID, Vector3.Zero);
 
                         return true;
                     }
@@ -376,23 +398,30 @@ namespace OpenSim.Region.OptionalModules.World.NPC
 
         public bool DeleteNPC(UUID agentID, Scene scene)
         {
+            bool doRemove = false;
+            NPCAvatar av;
             lock (m_avatars)
             {
-                NPCAvatar av;
                 if (m_avatars.TryGetValue(agentID, out av))
                 {
                     /*
                     m_log.DebugFormat("[NPC MODULE]: Found {0} {1} to remove",
                             agentID, av.Name);
                     */
-                    scene.RemoveClient(agentID, false);
-                    m_avatars.Remove(agentID);
-                    /*
-                    m_log.DebugFormat("[NPC MODULE]: Removed NPC {0} {1}",
-                            agentID, av.Name);
-                    */
-                    return true;
+                    doRemove = true;
                 }
+            }
+
+            if (doRemove)
+            {
+                scene.CloseAgent(agentID, false);
+                lock (m_avatars)
+                {
+                    m_avatars.Remove(agentID);
+                }
+                m_log.DebugFormat("[NPC MODULE]: Removed NPC {0} {1}",
+                        agentID, av.Name);
+                return true;
             }
             /*
             m_log.DebugFormat("[NPC MODULE]: Could not find {0} to remove",
@@ -416,13 +445,20 @@ namespace OpenSim.Region.OptionalModules.World.NPC
         /// <summary>
         /// Check if the caller has permission to manipulate the given NPC.
         /// </summary>
+        /// <remarks>
+        /// A caller has permission if
+        ///   * The caller UUID given is UUID.Zero.
+        ///   * The avatar is unowned (owner is UUID.Zero).
+        ///   * The avatar is owned and the owner and callerID match.
+        ///   * The avatar is owned and the callerID matches its agentID.
+        /// </remarks>
         /// <param name="av"></param>
         /// <param name="callerID"></param>
         /// <returns>true if they do, false if they don't.</returns>
         private bool CheckPermissions(NPCAvatar av, UUID callerID)
         {
             return callerID == UUID.Zero || av.OwnerID == UUID.Zero ||
-                    av.OwnerID == callerID;
+                av.OwnerID == callerID  || av.AgentId == callerID;
         }
     }
 }

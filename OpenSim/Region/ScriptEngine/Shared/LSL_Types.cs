@@ -102,19 +102,19 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
             public override string ToString()
             {
-                string s=String.Format("<{0:0.000000},{1:0.000000},{2:0.000000}>", x, y, z);
+				string s=String.Format(Culture.FormatProvider,"<{0:0.000000},{1:0.000000},{2:0.000000}>", x, y, z);
                 return s;
             }
 
             public static explicit operator LSLString(Vector3 vec)
             {
-                string s=String.Format("<{0:0.000000},{1:0.000000},{2:0.000000}>", vec.x, vec.y, vec.z);
+				string s=String.Format(Culture.FormatProvider,"<{0:0.000000},{1:0.000000},{2:0.000000}>", vec.x, vec.y, vec.z);
                 return new LSLString(s);
             }
 
             public static explicit operator string(Vector3 vec)
             {
-                string s=String.Format("<{0:0.000000},{1:0.000000},{2:0.000000}>", vec.x, vec.y, vec.z);
+				string s=String.Format(Culture.FormatProvider,"<{0:0.000000},{1:0.000000},{2:0.000000}>", vec.x, vec.y, vec.z);
                 return s;
             }
 
@@ -371,6 +371,31 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
             #endregion
 
+            #region Methods
+            public Quaternion Normalize()
+            {
+                double length = Math.Sqrt(x * x + y * y + z * z + s * s);
+                if (length < float.Epsilon)
+                {
+                    x = 0;
+                    y = 0;
+                    z = 0;
+                    s = 1;
+                }
+                else
+                {
+
+                    double invLength = 1.0 / length;
+                    x *= invLength;
+                    y *= invLength;
+                    z *= invLength;
+                    s *= invLength;
+                }
+
+                return this;
+            }
+            #endregion
+
             #region Overriders
 
             public override int GetHashCode()
@@ -477,7 +502,7 @@ namespace OpenSim.Region.ScriptEngine.Shared
         }
 
         [Serializable]
-        public class list
+        public struct list
         {
             private object[] m_data;
 
@@ -544,111 +569,136 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
                 set {m_data = value; }
             }
-        // Function to obtain LSL type from an index. This is needed
-        // because LSL lists allow for multiple types, and safely
-        // iterating in them requires a type check.
+
+            /// <summary>
+            /// Obtain LSL type from an index.
+            /// </summary>
+            /// <remarks>
+            /// This is needed because LSL lists allow for multiple types, and safely
+            /// iterating in them requires a type check.
+            /// </remarks>
+            /// <returns></returns>
+            /// <param name='itemIndex'></param>
             public Type GetLSLListItemType(int itemIndex)
             {
-                return m_data[itemIndex].GetType();
+                return Data[itemIndex].GetType();
             }
 
-        // Member functions to obtain item as specific types.
-        // For cases where implicit conversions would apply if items
-        // were not in a list (e.g. integer to float, but not float
-        // to integer) functions check for alternate types so as to
-        // down-cast from Object to the correct type.
-        // Note: no checks for item index being valid are performed
-
+            /// <summary>
+            /// Obtain float from an index.
+            /// </summary>
+            /// <remarks>
+            /// For cases where implicit conversions would apply if items
+            /// were not in a list (e.g. integer to float, but not float
+            /// to integer) functions check for alternate types so as to
+            /// down-cast from Object to the correct type.
+            /// Note: no checks for item index being valid are performed
+            /// </remarks>
+            /// <returns></returns>
+            /// <param name='itemIndex'></param>
             public LSL_Types.LSLFloat GetLSLFloatItem(int itemIndex)
             {
-                if (m_data[itemIndex] is LSL_Types.LSLInteger)
+                if (Data[itemIndex] is LSL_Types.LSLInteger)
                 {
-                    return (LSL_Types.LSLInteger)m_data[itemIndex];
+                    return (LSL_Types.LSLInteger)Data[itemIndex];
                 }
-                else if (m_data[itemIndex] is Int32)
+                else if (Data[itemIndex] is Int32)
                 {
-                    return new LSL_Types.LSLFloat((int)m_data[itemIndex]);
+                    return new LSL_Types.LSLFloat((int)Data[itemIndex]);
                 }
-                else if (m_data[itemIndex] is float)
+                else if (Data[itemIndex] is float)
                 {
-                    return new LSL_Types.LSLFloat((float)m_data[itemIndex]);
+                    return new LSL_Types.LSLFloat((float)Data[itemIndex]);
                 }
-                else if (m_data[itemIndex] is Double)
+                else if (Data[itemIndex] is Double)
                 {
-                    return new LSL_Types.LSLFloat((Double)m_data[itemIndex]);
+                    return new LSL_Types.LSLFloat((Double)Data[itemIndex]);
                 }
-                else if (m_data[itemIndex] is LSL_Types.LSLString)
+                else if (Data[itemIndex] is LSL_Types.LSLString)
                 {
-                    return new LSL_Types.LSLFloat(m_data[itemIndex].ToString());
+                    return new LSL_Types.LSLFloat(Data[itemIndex].ToString());
                 }
                 else
                 {
-                    return (LSL_Types.LSLFloat)m_data[itemIndex];
+                    return (LSL_Types.LSLFloat)Data[itemIndex];
                 }
             }
 
             public LSL_Types.LSLString GetLSLStringItem(int itemIndex)
             {
-              if (m_data[itemIndex] is LSL_Types.key)
-              {
-                return (LSL_Types.key)m_data[itemIndex];
-              }
-              else if (m_data[itemIndex] is String)
-              {
-                return new LSL_Types.LSLString((string)m_data[itemIndex]);
-              }
-              else if (m_data[itemIndex] is LSL_Types.LSLFloat)
-              {
-                  return new LSL_Types.LSLString((LSLFloat)m_data[itemIndex]);
-              }
-              else if (m_data[itemIndex] is LSL_Types.LSLInteger)
-              {
-                  return new LSL_Types.LSLString((LSLInteger)m_data[itemIndex]);
-              }
-              else
-              {
-                  return (LSL_Types.LSLString)m_data[itemIndex];
-              }
+                if (Data[itemIndex] is LSL_Types.key)
+                {
+                    return (LSL_Types.key)Data[itemIndex];
+                }
+                else
+                {
+                    return new LSL_Types.LSLString(Data[itemIndex].ToString());
+                }
             }
 
             public LSL_Types.LSLInteger GetLSLIntegerItem(int itemIndex)
             {
-                if (m_data[itemIndex] is LSL_Types.LSLInteger)
-                    return (LSL_Types.LSLInteger)m_data[itemIndex];
-                if (m_data[itemIndex] is LSL_Types.LSLFloat)
-                    return new LSLInteger((int)m_data[itemIndex]);
-                else if (m_data[itemIndex] is Int32)
-                    return new LSLInteger((int)m_data[itemIndex]);
-                else if (m_data[itemIndex] is LSL_Types.LSLString)
-                    return new LSLInteger(m_data[itemIndex].ToString());
+                if (Data[itemIndex] is LSL_Types.LSLInteger)
+                    return (LSL_Types.LSLInteger)Data[itemIndex];
+                if (Data[itemIndex] is LSL_Types.LSLFloat)
+                    return new LSLInteger((int)Data[itemIndex]);
+                else if (Data[itemIndex] is Int32)
+                    return new LSLInteger((int)Data[itemIndex]);
+                else if (Data[itemIndex] is LSL_Types.LSLString)
+                    return new LSLInteger(Data[itemIndex].ToString());
                 else
                     throw new InvalidCastException(string.Format(
                         "{0} expected but {1} given",
                         typeof(LSL_Types.LSLInteger).Name,
-                        m_data[itemIndex] != null ?
-                        m_data[itemIndex].GetType().Name : "null"));
+                        Data[itemIndex] != null ?
+                        Data[itemIndex].GetType().Name : "null"));
             }
 
             public LSL_Types.Vector3 GetVector3Item(int itemIndex)
             {
-                if(m_data[itemIndex] is LSL_Types.Vector3)
-                    return (LSL_Types.Vector3)m_data[itemIndex];
+                if (Data[itemIndex] is LSL_Types.Vector3)
+                {
+                    return (LSL_Types.Vector3)Data[itemIndex];
+                }
+                else if(Data[itemIndex] is OpenMetaverse.Vector3)
+                {
+                    return new LSL_Types.Vector3(
+                            (OpenMetaverse.Vector3)Data[itemIndex]);
+                }
                 else
+                {
                     throw new InvalidCastException(string.Format(
                         "{0} expected but {1} given",
                         typeof(LSL_Types.Vector3).Name,
-                        m_data[itemIndex] != null ?
-                        m_data[itemIndex].GetType().Name : "null"));
+                        Data[itemIndex] != null ?
+                        Data[itemIndex].GetType().Name : "null"));
+                }
             }
 
             public LSL_Types.Quaternion GetQuaternionItem(int itemIndex)
             {
-              return (LSL_Types.Quaternion)m_data[itemIndex];
+                if (Data[itemIndex] is LSL_Types.Quaternion)
+                {
+                    return (LSL_Types.Quaternion)Data[itemIndex];
+                }
+                else if(Data[itemIndex] is OpenMetaverse.Quaternion)
+                {
+                    return new LSL_Types.Quaternion(
+                            (OpenMetaverse.Quaternion)Data[itemIndex]);
+                }
+                else
+                {
+                    throw new InvalidCastException(string.Format(
+                        "{0} expected but {1} given",
+                        typeof(LSL_Types.Quaternion).Name,
+                        Data[itemIndex] != null ?
+                        Data[itemIndex].GetType().Name : "null"));
+                }
             }
 
             public LSL_Types.key GetKeyItem(int itemIndex)
             {
-              return (LSL_Types.key)m_data[itemIndex];
+              return (LSL_Types.key)Data[itemIndex];
             }
 
             public static list operator +(list a, list b)
@@ -662,8 +712,11 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
             private void ExtendAndAdd(object o)
             {
-                Array.Resize(ref m_data, Length + 1);
-                m_data.SetValue(o, Length - 1);
+                object[] tmp;
+                tmp = new object[Data.Length + 1];
+                Data.CopyTo(tmp, 0);
+                tmp.SetValue(o, tmp.Length - 1);
+                Data = tmp;
             }
 
             public static list operator +(list a, LSLString s)
@@ -711,10 +764,10 @@ namespace OpenSim.Region.ScriptEngine.Shared
             public void Add(object o)
             {
                 object[] tmp;
-                tmp = new object[m_data.Length + 1];
-                m_data.CopyTo(tmp, 0);
-                tmp[m_data.Length] = o;
-                m_data = tmp;
+                tmp = new object[Data.Length + 1];
+                Data.CopyTo(tmp, 0);
+                tmp[Data.Length] = o; // Since this is tmp.Length - 1
+                Data = tmp;
             }
 
             public bool Contains(object o)
@@ -741,53 +794,53 @@ namespace OpenSim.Region.ScriptEngine.Shared
                 Object[] ret;
 
                 if (start < 0)
-                    start=m_data.Length+start;
+                    start=Data.Length+start;
 
                 if (start < 0)
                     start=0;
 
                 if (end < 0)
-                    end=m_data.Length+end;
+                    end=Data.Length+end;
                 if (end < 0)
                     end=0;
 
                 if (start > end)
                 {
-                    if (end >= m_data.Length)
+                    if (end >= Data.Length)
                         return new list(new Object[0]);
 
-                    if (start >= m_data.Length)
-                        start=m_data.Length-1;
+                    if (start >= Data.Length)
+                        start=Data.Length-1;
 
                     return GetSublist(end, start);
                 }
 
                 // start >= 0 && end >= 0 here
-                if (start >= m_data.Length)
+                if (start >= Data.Length)
                 {
-                    ret=new Object[m_data.Length];
-                    Array.Copy(m_data, 0, ret, 0, m_data.Length);
+                    ret=new Object[Data.Length];
+                    Array.Copy(Data, 0, ret, 0, Data.Length);
 
                     return new list(ret);
                 }
 
-                if (end >= m_data.Length)
-                    end=m_data.Length-1;
+                if (end >= Data.Length)
+                    end=Data.Length-1;
 
                 // now, this makes the math easier
                 int remove=end+1-start;
 
-                ret=new Object[m_data.Length-remove];
+                ret=new Object[Data.Length-remove];
                 if (ret.Length == 0)
                     return new list(ret);
 
                 int src;
                 int dest=0;
 
-                for (src = 0; src < m_data.Length; src++)
+                for (src = 0; src < Data.Length; src++)
                 {
                     if (src < start || src > end)
-                        ret[dest++]=m_data[src];
+                        ret[dest++]=Data[src];
                 }
 
                 return new list(ret);
@@ -807,12 +860,12 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
                 if (start < 0)
                 {
-                    start = m_data.Length + start;
+                    start = Data.Length + start;
                 }
 
                 if (end < 0)
                 {
-                    end = m_data.Length + end;
+                    end = Data.Length + end;
                 }
 
                 // The conventional case is start <= end
@@ -826,15 +879,15 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
                     // Start sublist beyond length
                     // Also deals with start AND end still negative
-                    if (start >= m_data.Length || end < 0)
+                    if (start >= Data.Length || end < 0)
                     {
                         return new list();
                     }
 
                     // Sublist extends beyond the end of the supplied list
-                    if (end >= m_data.Length)
+                    if (end >= Data.Length)
                     {
-                        end = m_data.Length - 1;
+                        end = Data.Length - 1;
                     }
 
                     // Sublist still starts before the beginning of the list
@@ -845,7 +898,7 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
                     ret = new object[end - start + 1];
 
-                    Array.Copy(m_data, start, ret, 0, end - start + 1);
+                    Array.Copy(Data, start, ret, 0, end - start + 1);
 
                     return new list(ret);
 
@@ -856,7 +909,7 @@ namespace OpenSim.Region.ScriptEngine.Shared
                 else
                 {
 
-                    list result = null;
+                    list result;
 
                     // If end is negative, then prefix list is empty
                     if (end < 0)
@@ -878,7 +931,7 @@ namespace OpenSim.Region.ScriptEngine.Shared
 
                     // If start is outside of list, then just return
                     // the prefix, whatever it is.
-                    if (start >= m_data.Length)
+                    if (start >= Data.Length)
                     {
                         return result;
                     }
@@ -1056,11 +1109,11 @@ namespace OpenSim.Region.ScriptEngine.Shared
             {
                 string output;
                 output = String.Empty;
-                if (m_data.Length == 0)
+                if (Data.Length == 0)
                 {
                     return String.Empty;
                 }
-                foreach (object o in m_data)
+                foreach (object o in Data)
                 {
                     output = output + o.ToString();
                 }
@@ -1255,12 +1308,12 @@ namespace OpenSim.Region.ScriptEngine.Shared
             public string ToPrettyString()
             {
                 string output;
-                if (m_data.Length == 0)
+                if (Data.Length == 0)
                 {
                     return "[]";
                 }
                 output = "[";
-                foreach (object o in m_data)
+                foreach (object o in Data)
                 {
                     if (o is String)
                     {
@@ -1327,27 +1380,6 @@ namespace OpenSim.Region.ScriptEngine.Shared
             }
         }
 
-        //
-        // BELOW IS WORK IN PROGRESS... IT WILL CHANGE, SO DON'T USE YET! :)
-        //
-
-        public struct StringTest
-        {
-            // Our own little string
-            internal string actualString;
-            public static implicit operator bool(StringTest mString)
-            {
-                if (mString.actualString.Length == 0)
-                    return true;
-                return false;
-            }
-            public override string ToString()
-            {
-                return actualString;
-            }
-
-        }
-
         [Serializable]
         public struct key
         {
@@ -1400,6 +1432,16 @@ namespace OpenSim.Region.ScriptEngine.Shared
                 {
                     return false;
                 }
+            }
+            
+            public static bool operator true(key k)
+            {
+                return (Boolean)k;
+            }
+
+            public static bool operator false(key k)
+            {
+                return !(Boolean)k;
             }
 
             static public implicit operator key(string s)

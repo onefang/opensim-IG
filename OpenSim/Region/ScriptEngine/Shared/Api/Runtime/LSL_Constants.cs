@@ -48,6 +48,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int STATUS_DIE_AT_EDGE = 128;
         public const int STATUS_RETURN_AT_EDGE = 256;
         public const int STATUS_CAST_SHADOWS = 512;
+        public const int STATUS_BLOCK_GRAB_OBJECT = 1024;
 
         public const int AGENT = 1;
         public const int AGENT_BY_LEGACY_NAME = 1;
@@ -106,6 +107,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int PSYS_PART_TARGET_POS_MASK = 64;
         public const int PSYS_PART_TARGET_LINEAR_MASK = 128;
         public const int PSYS_PART_EMISSIVE_MASK = 256;
+        public const int PSYS_PART_RIBBON_MASK = 1024;
         public const int PSYS_PART_FLAGS = 0;
         public const int PSYS_PART_START_COLOR = 1;
         public const int PSYS_PART_START_ALPHA = 2;
@@ -129,6 +131,18 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int PSYS_SRC_OMEGA = 21;
         public const int PSYS_SRC_ANGLE_BEGIN = 22;
         public const int PSYS_SRC_ANGLE_END = 23;
+        public const int PSYS_PART_BLEND_FUNC_SOURCE = 24;
+        public const int PSYS_PART_BLEND_FUNC_DEST = 25;
+        public const int PSYS_PART_START_GLOW = 26;
+        public const int PSYS_PART_END_GLOW = 27;
+        public const int PSYS_PART_BF_ONE = 0;
+        public const int PSYS_PART_BF_ZERO = 1;
+        public const int PSYS_PART_BF_DEST_COLOR = 2;
+        public const int PSYS_PART_BF_SOURCE_COLOR = 3;
+        public const int PSYS_PART_BF_ONE_MINUS_DEST_COLOR = 4;
+        public const int PSYS_PART_BF_ONE_MINUS_SOURCE_COLOR = 5;
+        public const int PSYS_PART_BF_SOURCE_ALPHA = 7;
+        public const int PSYS_PART_BF_ONE_MINUS_SOURCE_ALPHA = 9;
         public const int PSYS_SRC_PATTERN_DROP = 1;
         public const int PSYS_SRC_PATTERN_EXPLODE = 2;
         public const int PSYS_SRC_PATTERN_ANGLE = 4;
@@ -236,6 +250,8 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int ATTACH_HUD_BOTTOM_LEFT = 36;
         public const int ATTACH_HUD_BOTTOM = 37;
         public const int ATTACH_HUD_BOTTOM_RIGHT = 38;
+        public const int ATTACH_NECK = 39;
+        public const int ATTACH_AVATAR_CENTER = 40;
 
         #region osMessageAttachments constants
 
@@ -355,6 +371,20 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int HTTP_MIMETYPE = 1;
         public const int HTTP_BODY_MAXLENGTH = 2;
         public const int HTTP_VERIFY_CERT = 3;
+        public const int HTTP_VERBOSE_THROTTLE = 4;
+        public const int HTTP_CUSTOM_HEADER = 5;
+        public const int HTTP_PRAGMA_NO_CACHE = 6;
+
+        // llSetContentType
+        public const int CONTENT_TYPE_TEXT = 0; //text/plain
+        public const int CONTENT_TYPE_HTML = 1; //text/html
+        public const int CONTENT_TYPE_XML = 2; //application/xml
+        public const int CONTENT_TYPE_XHTML = 3; //application/xhtml+xml
+        public const int CONTENT_TYPE_ATOM = 4; //application/atom+xml
+        public const int CONTENT_TYPE_JSON = 5; //application/json
+        public const int CONTENT_TYPE_LLSD = 6; //application/llsd+xml
+        public const int CONTENT_TYPE_FORM = 7; //application/x-www-form-urlencoded
+        public const int CONTENT_TYPE_RSS = 8; //application/rss+xml
 
         public const int PRIM_MATERIAL = 2;
         public const int PRIM_PHYSICS = 3;
@@ -381,6 +411,9 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int PRIM_POS_LOCAL = 33;
         public const int PRIM_LINK_TARGET = 34;
         public const int PRIM_SLICE = 35;
+        public const int PRIM_SPECULAR = 36;
+        public const int PRIM_NORMAL = 37;
+        public const int PRIM_ALPHA_MODE = 38;
         public const int PRIM_TEXGEN_DEFAULT = 0;
         public const int PRIM_TEXGEN_PLANAR = 1;
 
@@ -563,6 +596,10 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int OBJECT_PHYSICS = 21;
         public const int OBJECT_PHANTOM = 22;
         public const int OBJECT_TEMP_ON_REZ = 23;
+        public const int OBJECT_RENDER_WEIGHT = 24;
+        public const int OBJECT_HOVER_HEIGHT = 25;
+        public const int OBJECT_BODY_SHAPE_TYPE = 26;
+        public const int OBJECT_LAST_OWNER_ID = 27;
 
         // Pathfinding types
         public const int OPT_OTHER = -1;
@@ -635,7 +672,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int TOUCH_INVALID_FACE = -1;
         public static readonly vector TOUCH_INVALID_TEXCOORD = new vector(-1.0, -1.0, 0.0);
         public static readonly vector TOUCH_INVALID_VECTOR = ZERO_VECTOR;
-        
+
         // constants for llGetPrimMediaParams/llSetPrimMediaParams
         public const int PRIM_MEDIA_ALT_IMAGE_ENABLE = 0;
         public const int PRIM_MEDIA_CONTROLS = 1;
@@ -652,15 +689,26 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const int PRIM_MEDIA_WHITELIST = 12;
         public const int PRIM_MEDIA_PERMS_INTERACT = 13;
         public const int PRIM_MEDIA_PERMS_CONTROL = 14;
-        
+
         public const int PRIM_MEDIA_CONTROLS_STANDARD = 0;
         public const int PRIM_MEDIA_CONTROLS_MINI = 1;
-        
+
         public const int PRIM_MEDIA_PERM_NONE = 0;
         public const int PRIM_MEDIA_PERM_OWNER = 1;
         public const int PRIM_MEDIA_PERM_GROUP = 2;
         public const int PRIM_MEDIA_PERM_ANYONE = 4;
-        
+
+        public const int PRIM_PHYSICS_SHAPE_TYPE = 30;
+        public const int PRIM_PHYSICS_SHAPE_PRIM = 0;
+        public const int PRIM_PHYSICS_SHAPE_CONVEX = 2;
+        public const int PRIM_PHYSICS_SHAPE_NONE = 1;
+
+        public const int PRIM_PHYSICS_MATERIAL = 31;
+        public const int DENSITY = 1;
+        public const int FRICTION = 2;
+        public const int RESTITUTION = 4;
+        public const int GRAVITY_MULTIPLIER = 8;
+
         // extra constants for llSetPrimMediaParams
         public static readonly LSLInteger LSL_STATUS_OK = new LSLInteger(0);
         public static readonly LSLInteger LSL_STATUS_MALFORMED_PARAMS = new LSLInteger(1000);
@@ -677,7 +725,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public const string TEXTURE_PLYWOOD = "89556747-24cb-43ed-920b-47caed15465f";
         public const string TEXTURE_TRANSPARENT = "8dcd4a48-2d37-4909-9f78-f7a9eb4ef903";
         public const string TEXTURE_MEDIA = "8b5fec65-8d8d-9dc5-cda8-8fdf2716e361";
-        
+
         // Constants for osGetRegionStats
         public const int STATS_TIME_DILATION = 0;
         public const int STATS_SIM_FPS = 1;
@@ -730,9 +778,22 @@ namespace OpenSim.Region.ScriptEngine.Shared.ScriptBase
         public static readonly LSLInteger RC_GET_ROOT_KEY = 2;
         public static readonly LSLInteger RC_GET_LINK_NUM = 4;
 
-        public static readonly LSLInteger RCERR_UNKNOWN = -1;        
+        public static readonly LSLInteger RCERR_UNKNOWN = -1;
         public static readonly LSLInteger RCERR_SIM_PERF_LOW = -2;
-        public static readonly LSLInteger RCERR_CAST_TIME_EXCEEDED = 3;
+        public static readonly LSLInteger RCERR_CAST_TIME_EXCEEDED = -3;
+
+        public const int KFM_MODE = 1;
+        public const int KFM_LOOP = 1;
+        public const int KFM_REVERSE = 3;
+        public const int KFM_FORWARD = 0;
+        public const int KFM_PING_PONG = 2;
+        public const int KFM_DATA = 2;
+        public const int KFM_TRANSLATION = 2;
+        public const int KFM_ROTATION = 1;
+        public const int KFM_COMMAND = 0;
+        public const int KFM_CMD_PLAY = 0;
+        public const int KFM_CMD_STOP = 1;
+        public const int KFM_CMD_PAUSE = 2;
 
         /// <summary>
         /// process name parameter as regex

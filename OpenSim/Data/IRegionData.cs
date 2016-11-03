@@ -52,14 +52,14 @@ namespace OpenSim.Data
         public int sizeY;
 
         /// <summary>
-        /// Return the x-coordinate of this region.
+        /// Return the x-coordinate of this region in region units.
         /// </summary>
-        public int coordX { get { return posX / (int)Constants.RegionSize; } }
+        public int coordX { get { return (int)Util.WorldToRegionLoc((uint)posX); } }
 
         /// <summary>
-        /// Return the y-coordinate of this region.
+        /// Return the y-coordinate of this region in region units.
         /// </summary>
-        public int coordY { get { return posY / (int)Constants.RegionSize; } }
+        public int coordY { get { return (int)Util.WorldToRegionLoc((uint)posY); } }
 
         public Dictionary<string, object> Data;
     }
@@ -81,6 +81,7 @@ namespace OpenSim.Data
         bool Delete(UUID regionID);
 
         List<RegionData> GetDefaultRegions(UUID scopeID);
+        List<RegionData> GetDefaultHypergridRegions(UUID scopeID);
         List<RegionData> GetFallbackRegions(UUID scopeID, int x, int y);
         List<RegionData> GetHyperlinks(UUID scopeID);
     }

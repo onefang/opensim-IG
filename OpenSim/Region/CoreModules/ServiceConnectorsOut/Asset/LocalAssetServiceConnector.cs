@@ -236,7 +236,8 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
 
                 if (asset != null)
                 {
-                    Util.FireAndForget(delegate { handler(id, sender, asset); });
+                    Util.FireAndForget(
+                        o => handler(id, sender, asset), null, "LocalAssetServiceConnector.GotFromCacheCallback");
                     return true;
                 }
             }
@@ -249,8 +250,14 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
 //                if (null == a)
 //                    m_log.WarnFormat("[LOCAL ASSET SERVICES CONNECTOR]: Could not asynchronously find asset with id {0}", id);
 
-                Util.FireAndForget(delegate { handler(assetID, s, a); });
+                Util.FireAndForget(
+                    o => handler(assetID, s, a), null, "LocalAssetServiceConnector.GotFromServiceCallback");
             });
+        }
+
+        public bool[] AssetsExist(string[] ids)
+        {
+            return m_AssetService.AssetsExist(ids);
         }
 
         public string Store(AssetBase asset)
@@ -258,7 +265,7 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Asset
             if (m_Cache != null)
                 m_Cache.Cache(asset);
             
-            if (asset.Temporary || asset.Local)
+            if (asset.Local)
             {
 //                m_log.DebugFormat(
 //                    "[LOCAL ASSET SERVICE CONNECTOR]: Returning asset {0} {1} without querying database since status Temporary = {2}, Local = {3}",

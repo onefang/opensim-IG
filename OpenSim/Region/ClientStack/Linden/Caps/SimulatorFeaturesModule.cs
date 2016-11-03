@@ -27,6 +27,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using log4net;
 using Nini.Config;
@@ -37,7 +38,7 @@ using OpenSim.Framework;
 using OpenSim.Framework.Servers.HttpServer;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
-using OpenSim.Services.Interfaces;
+// using OpenSim.Services.Interfaces;
 using Caps = OpenSim.Framework.Capabilities.Caps;
 
 namespace OpenSim.Region.ClientStack.Linden
@@ -56,8 +57,10 @@ namespace OpenSim.Region.ClientStack.Linden
     [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "SimulatorFeaturesModule")]
     public class SimulatorFeaturesModule : ISharedRegionModule, ISimulatorFeaturesModule
     {
-//        private static readonly ILog m_log =
-//            LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly ILog m_log =
+            LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
+        public event SimulatorFeaturesRequestDelegate OnSimulatorFeaturesRequest;
 
         private Scene m_scene;
 
@@ -66,25 +69,40 @@ namespace OpenSim.Region.ClientStack.Linden
         /// </summary>
         private OSDMap m_features = new OSDMap();
 
-        private string m_MapImageServerURL = string.Empty;
         private string m_SearchURL = string.Empty;
+        private string m_DestinationGuideURL = string.Empty;
+        private bool m_ExportSupported = false;
+        private string m_GridName = string.Empty;
+        private string m_GridURL = string.Empty;
 
         #region ISharedRegionModule Members
 
         public void Initialise(IConfigSource source)
         {
             IConfig config = source.Configs["SimulatorFeatures"];
+
             if (config != null)
-            {
-                m_MapImageServerURL = config.GetString("MapImageServerURI", string.Empty);
-                if (m_MapImageServerURL != string.Empty)
-                {
-                    m_MapImageServerURL = m_MapImageServerURL.Trim();
-                    if (!m_MapImageServerURL.EndsWith("/"))
-                        m_MapImageServerURL = m_MapImageServerURL + "/";
-                }
-    
-                m_SearchURL = config.GetString("SearchServerURI", string.Empty);
+            {  
+                //
+                // All this is obsolete since getting these features from the grid service!!
+                // Will be removed after the next release
+                //
+                m_SearchURL = config.GetString("SearchServerURI", m_SearchURL);
+
+                m_DestinationGuideURL = config.GetString ("DestinationGuideURI", m_DestinationGuideURL);
+
+                if (m_DestinationGuideURL == string.Empty) // Make this consistent with the variable in the LoginService config
+                    m_DestinationGuideURL = config.GetString("DestinationGuide", m_DestinationGuideURL);
+
+                m_ExportSupported = config.GetBoolean("ExportSupported", m_ExportSupported);
+
+                m_GridURL = Util.GetConfigVarFromSections<string>(
+                    source, "GatekeeperURI", new string[] { "Startup", "Hypergrid", "SimulatorFeatures" }, String.Empty);
+
+                m_GridName = config.GetString("GridName", string.Empty);
+                if (m_GridName == string.Empty)
+                    m_GridName = Util.GetConfigVarFromSections<string>(
+                        source, "gridname", new string[] { "GridInfo", "SimulatorFeatures" }, String.Empty);
             }
 
             AddDefaultFeatures();
@@ -94,6 +112,8 @@ namespace OpenSim.Region.ClientStack.Linden
         {
             m_scene = s;
             m_scene.EventManager.OnRegisterCaps += RegisterCaps;
+
+            m_scene.RegisterModuleInterface<ISimulatorFeaturesModule>(this);
         }
 
         public void RemoveRegion(Scene s)
@@ -103,6 +123,7 @@ namespace OpenSim.Region.ClientStack.Linden
 
         public void RegionLoaded(Scene s)
         {
+            GetGridExtraFeatures(s);
         }
 
         public void PostInitialise()
@@ -128,26 +149,43 @@ namespace OpenSim.Region.ClientStack.Linden
         /// </remarks>
         private void AddDefaultFeatures()
         {
+
             lock (m_features)
             {
                 m_features["MeshRezEnabled"] = true;
                 m_features["MeshUploadEnabled"] = true;
                 m_features["MeshXferEnabled"] = true;
                 m_features["PhysicsMaterialsEnabled"] = true;
-    
+
                 OSDMap typesMap = new OSDMap();
                 typesMap["convex"] = true;
                 typesMap["none"] = true;
                 typesMap["prim"] = true;
                 m_features["PhysicsShapeTypes"] = typesMap;
-    
+
                 // Extra information for viewers that want to use it
-                OSDMap gridServicesMap = new OSDMap();
-                if (m_MapImageServerURL != string.Empty)
-                    gridServicesMap["map-server-url"] = m_MapImageServerURL;
+                // TODO: Take these out of here into their respective modules, like map-server-url
+                OSDMap extrasMap;
+                if(m_features.ContainsKey("OpenSimExtras"))
+                {
+                    extrasMap = (OSDMap)m_features["OpenSimExtras"];
+                }
+                else
+                    extrasMap = new OSDMap();
+
                 if (m_SearchURL != string.Empty)
-                    gridServicesMap["search"] = m_SearchURL;
-                m_features["GridServices"] = gridServicesMap;
+                    extrasMap["search-server-url"] = m_SearchURL;
+                if (!string.IsNullOrEmpty(m_DestinationGuideURL))
+                    extrasMap["destination-guide-url"] = m_DestinationGuideURL;
+                if (m_ExportSupported)
+                    extrasMap["ExportSupported"] = true;
+                if (m_GridURL != string.Empty)
+                    extrasMap["GridURL"] = m_GridURL;
+                if (m_GridName != string.Empty)
+                    extrasMap["GridName"] = m_GridName;
+
+                if (extrasMap.Count > 0)
+                    m_features["OpenSimExtras"] = extrasMap;
             }
         }
 
@@ -156,7 +194,7 @@ namespace OpenSim.Region.ClientStack.Linden
             IRequestHandler reqHandler
                 = new RestHTTPHandler(
                     "GET", "/CAPS/" + UUID.Random(),
-                    HandleSimulatorFeaturesRequest, "SimulatorFeatures", agentID.ToString());
+                    x => { return HandleSimulatorFeaturesRequest(x, agentID); }, "SimulatorFeatures", agentID.ToString());
 
             caps.RegisterHandler("SimulatorFeatures", reqHandler);
         }
@@ -185,9 +223,30 @@ namespace OpenSim.Region.ClientStack.Linden
                 return new OSDMap(m_features);
         }
 
-        private Hashtable HandleSimulatorFeaturesRequest(Hashtable mDhttpMethod)
+        private OSDMap DeepCopy()
+        {
+            // This isn't the cheapest way of doing this but the rate
+            // of occurrence is low (on sim entry only) and it's a sure
+            // way to get a true deep copy.
+            OSD copy = OSDParser.DeserializeLLSDXml(OSDParser.SerializeLLSDXmlString(m_features));
+
+            return (OSDMap)copy;
+        }
+
+        private Hashtable HandleSimulatorFeaturesRequest(Hashtable mDhttpMethod, UUID agentID)
         {
 //            m_log.DebugFormat("[SIMULATOR FEATURES MODULE]: SimulatorFeatures request");
+
+            OSDMap copy = DeepCopy();
+
+            // Let's add the agentID to the destination guide, if it is expecting that.
+            if (copy.ContainsKey("OpenSimExtras") && ((OSDMap)(copy["OpenSimExtras"])).ContainsKey("destination-guide-url"))
+                ((OSDMap)copy["OpenSimExtras"])["destination-guide-url"] = Replace(((OSDMap)copy["OpenSimExtras"])["destination-guide-url"], "[USERID]", agentID.ToString());
+
+            SimulatorFeaturesRequestDelegate handlerOnSimulatorFeaturesRequest = OnSimulatorFeaturesRequest;
+
+            if (handlerOnSimulatorFeaturesRequest != null)
+                handlerOnSimulatorFeaturesRequest(agentID, ref copy);
 
             //Send back data
             Hashtable responsedata = new Hashtable();
@@ -195,10 +254,50 @@ namespace OpenSim.Region.ClientStack.Linden
             responsedata["content_type"] = "text/plain";
             responsedata["keepalive"] = false;
 
-            lock (m_features)
-                responsedata["str_response_string"] = OSDParser.SerializeLLSDXmlString(m_features);
+            responsedata["str_response_string"] = OSDParser.SerializeLLSDXmlString(copy);
 
             return responsedata;
+        }
+
+        /// <summary>
+        /// Gets the grid extra features.
+        /// </summary>
+        /// <param name='featuresURI'>
+        /// The URI Robust uses to handle the get_extra_features request
+        /// </param>
+        private void GetGridExtraFeatures(Scene scene)
+        {
+            Dictionary<string, object> extraFeatures = scene.GridService.GetExtraFeatures();
+            if (extraFeatures.ContainsKey("Result") && extraFeatures["Result"] != null && extraFeatures["Result"].ToString() == "Failure")
+            {
+                m_log.WarnFormat("[SIMULATOR FEATURES MODULE]: Unable to retrieve grid-wide features");
+                return;
+            }
+
+            lock (m_features)
+            {
+                OSDMap extrasMap = new OSDMap();
+
+                foreach(string key in extraFeatures.Keys)
+                {
+                    extrasMap[key] = (string)extraFeatures[key];
+
+                    if (key == "ExportSupported")
+                    {
+                        bool.TryParse(extraFeatures[key].ToString(), out m_ExportSupported);
+                    }
+                }
+                m_features["OpenSimExtras"] = extrasMap;
+
+            }
+        }
+
+        private string Replace(string url, string substring, string replacement)
+        {
+            if (!String.IsNullOrEmpty(url) && url.Contains(substring))
+                return url.Replace(substring, replacement);
+
+            return url;
         }
     }
 }

@@ -194,6 +194,14 @@ namespace OpenSim.Region.CoreModules.Asset
 
         #region IImprovedAssetCache Members
 
+        public bool Check(string id)
+        {
+            AssetBase asset;
+
+            // XXX:This is probably not an efficient implementation.
+            return m_cache.TryGetValue(id, out asset);
+        }
+
         /// <summary>
         /// Cache asset.
         /// </summary>
@@ -308,9 +316,12 @@ namespace OpenSim.Region.CoreModules.Asset
         /// </summary>
         public void Close()
         {
-            m_enabled = false;
-            m_cache.Clear();
-            m_cache = null;
+            if (m_enabled)
+            {
+                m_enabled = false;
+                m_cache.Clear();
+                m_cache = null;
+            }
         }
 
         /// <summary>

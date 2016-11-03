@@ -123,53 +123,54 @@ namespace OpenSim.Services.AssetService
         public virtual AssetMetadata GetMetadata(string id)
         {
 //            m_log.DebugFormat("[ASSET SERVICE]: Get asset metadata for {0}", id);
-            
-            UUID assetID;
 
-            if (!UUID.TryParse(id, out assetID))
-                return null;
+            AssetBase asset = Get(id);
 
-            AssetBase asset = m_Database.GetAsset(assetID);
             if (asset != null)
                 return asset.Metadata;
-
-            return null;
+            else
+                return null;
         }
 
         public virtual byte[] GetData(string id)
         {
 //            m_log.DebugFormat("[ASSET SERVICE]: Get asset data for {0}", id);
-            
-            UUID assetID;
 
-            if (!UUID.TryParse(id, out assetID))
+            AssetBase asset = Get(id);
+
+            if (asset != null)
+                return asset.Data;
+            else
                 return null;
-
-            AssetBase asset = m_Database.GetAsset(assetID);
-            return asset.Data;
         }
 
         public virtual bool Get(string id, Object sender, AssetRetrieved handler)
         {
             //m_log.DebugFormat("[AssetService]: Get asset async {0}", id);
-            
-            UUID assetID;
 
-            if (!UUID.TryParse(id, out assetID))
-                return false;
-
-            AssetBase asset = m_Database.GetAsset(assetID);
-
-            //m_log.DebugFormat("[AssetService]: Got asset {0}", asset);
-            
-            handler(id, sender, asset);
+            handler(id, sender, Get(id));
 
             return true;
         }
 
+        public virtual bool[] AssetsExist(string[] ids)
+        {
+            try
+            {
+                UUID[] uuid = Array.ConvertAll(ids, id => UUID.Parse(id));
+                return m_Database.AssetsExist(uuid);
+            }
+            catch (Exception e)
+            {
+                m_log.Error("[ASSET SERVICE]: Exception getting assets ", e);
+                return new bool[ids.Length];
+            }
+        }
+        
         public virtual string Store(AssetBase asset)
         {
-            if (!m_Database.ExistsAsset(asset.FullID))
+            bool exists = m_Database.AssetsExist(new[] { asset.FullID })[0];
+            if (!exists)
             {
 //                m_log.DebugFormat(
 //                    "[ASSET SERVICE]: Storing asset {0} {1}, bytes {2}", asset.Name, asset.FullID, asset.Data.Length);

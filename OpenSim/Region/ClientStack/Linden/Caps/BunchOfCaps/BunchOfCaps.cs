@@ -44,11 +44,13 @@ using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Scenes.Serialization;
 using OpenSim.Framework.Servers;
 using OpenSim.Framework.Servers.HttpServer;
+using OpenSim.Framework.Client;
 using OpenSim.Services.Interfaces;
 
 using Caps = OpenSim.Framework.Capabilities.Caps;
 using OSDArray = OpenMetaverse.StructuredData.OSDArray;
 using OSDMap = OpenMetaverse.StructuredData.OSDMap;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.ClientStack.Linden
 {
@@ -96,6 +98,8 @@ namespace OpenSim.Region.ClientStack.Linden
         //        private static readonly string m_fetchInventoryPath = "0006/";
         private static readonly string m_copyFromNotecardPath = "0007/";
         // private static readonly string m_remoteParcelRequestPath = "0009/";// This is in the LandManagementModule.
+        private static readonly string m_getObjectPhysicsDataPath = "0101/";
+        /* 0102 - 0103 RESERVED */
         private static readonly string m_UpdateAgentInformationPath = "0500/";
         
         // These are callbacks which will be setup by the scene so that we can update scene data when we
@@ -204,7 +208,15 @@ namespace OpenSim.Region.ClientStack.Linden
                 m_HostCapsObj.RegisterHandler("UpdateNotecardAgentInventory", req);
                 m_HostCapsObj.RegisterHandler("UpdateScriptAgentInventory", req);
                 m_HostCapsObj.RegisterHandler("UpdateScriptAgent", req);
-                IRequestHandler UpdateAgentInformationHandler = new RestStreamHandler("POST", capsBase + m_UpdateAgentInformationPath, UpdateAgentInformation);
+
+                IRequestHandler getObjectPhysicsDataHandler 
+                    = new RestStreamHandler(
+                        "POST", capsBase + m_getObjectPhysicsDataPath, GetObjectPhysicsData, "GetObjectPhysicsData", null);
+                m_HostCapsObj.RegisterHandler("GetObjectPhysicsData", getObjectPhysicsDataHandler);
+
+                IRequestHandler UpdateAgentInformationHandler
+                    = new RestStreamHandler(
+                        "POST", capsBase + m_UpdateAgentInformationPath, UpdateAgentInformation, "UpdateAgentInformation", null);
                 m_HostCapsObj.RegisterHandler("UpdateAgentInformation", UpdateAgentInformationHandler);
 
                 m_HostCapsObj.RegisterHandler(
@@ -256,8 +268,8 @@ namespace OpenSim.Region.ClientStack.Linden
         public string SeedCapRequest(string request, string path, string param,
                                   IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
-            m_log.DebugFormat(
-                "[CAPS]: Received SEED caps request in {0} for agent {1}", m_regionName, m_HostCapsObj.AgentID);
+//            m_log.DebugFormat(
+//                "[CAPS]: Received SEED caps request in {0} for agent {1}", m_regionName, m_HostCapsObj.AgentID);
 
             if (!m_Scene.CheckClient(m_HostCapsObj.AgentID, httpRequest.RemoteIPEndPoint))
             {
@@ -268,13 +280,13 @@ namespace OpenSim.Region.ClientStack.Linden
                 return string.Empty;
             }
 
-            Hashtable caps = m_HostCapsObj.CapsHandlers.GetCapsDetails(true);
+            OSDArray capsRequested = (OSDArray)OSDParser.DeserializeLLSDXml(request);
+            List<string> validCaps = new List<string>();
 
-            // Add the external too
-            foreach (KeyValuePair<string, string> kvp in m_HostCapsObj.ExternalCapsHandlers)
-                caps[kvp.Key] = kvp.Value;
+            foreach (OSD c in capsRequested)
+                validCaps.Add(c.AsString());
 
-            string result = LLSDHelpers.SerialiseLLSDReply(caps);
+            string result = LLSDHelpers.SerialiseLLSDReply(m_HostCapsObj.GetCapsDetails(true, validCaps));
 
             //m_log.DebugFormat("[CAPS] CapsRequest {0}", result);
 
@@ -487,24 +499,28 @@ namespace OpenSim.Region.ClientStack.Linden
 
             if (inventoryType == "sound")
             {
-                inType = 1;
-                assType = 1;
+                inType = (sbyte)InventoryType.Sound;
+                assType = (sbyte)AssetType.Sound;
+            }
+            else if (inventoryType == "snapshot")
+            {
+                inType = (sbyte)InventoryType.Snapshot;
             }
             else if (inventoryType == "animation")
             {
-                inType = 19;
-                assType = 20;
+                inType = (sbyte)InventoryType.Animation;
+                assType = (sbyte)AssetType.Animation;
             }
             else if (inventoryType == "wearable")
             {
-                inType = 18;
+                inType = (sbyte)InventoryType.Wearable;
                 switch (assetType)
                 {
                     case "bodypart":
-                        assType = 13;
+                        assType = (sbyte)AssetType.Bodypart;
                         break;
                     case "clothing":
-                        assType = 5;
+                        assType = (sbyte)AssetType.Clothing;
                         break;
                 }
             }
@@ -521,6 +537,41 @@ namespace OpenSim.Region.ClientStack.Linden
                 OSDArray texture_list = (OSDArray)request["texture_list"];
                 SceneObjectGroup grp = null;
 
+                InventoryFolderBase textureUploadFolder = null;
+
+                List<InventoryFolderBase> foldersToUpdate = new List<InventoryFolderBase>();
+                List<InventoryItemBase> itemsToUpdate = new List<InventoryItemBase>();
+                IClientInventory clientInv = null;
+                
+                if (texture_list.Count > 0)
+                {
+                    ScenePresence avatar = null;
+                    m_Scene.TryGetScenePresence(m_HostCapsObj.AgentID, out avatar);
+
+                    if (avatar != null)
+                    {
+                        IClientCore core = (IClientCore)avatar.ControllingClient;
+
+                        if (core.TryGet<IClientInventory>(out clientInv))
+                        {
+                            var systemTextureFolder = m_Scene.InventoryService.GetFolderForType(m_HostCapsObj.AgentID, FolderType.Texture);
+                            textureUploadFolder = new InventoryFolderBase(UUID.Random(), assetName, m_HostCapsObj.AgentID, (short)FolderType.None, systemTextureFolder.ID, 1);
+                            if (m_Scene.InventoryService.AddFolder(textureUploadFolder))
+                            {
+                                foldersToUpdate.Add(textureUploadFolder);
+
+                                m_log.DebugFormat(
+                                    "[BUNCH OF CAPS]: Created new folder '{0}' ({1}) for textures uploaded with mesh object {2}", 
+                                    textureUploadFolder.Name, textureUploadFolder.ID, assetName);
+                            }
+                            else
+                            {
+                                textureUploadFolder = null;
+                            }
+                        }
+                    }
+                }
+
                 List<UUID> textures = new List<UUID>();
                 for (int i = 0; i < texture_list.Count; i++)
                 {
@@ -528,6 +579,38 @@ namespace OpenSim.Region.ClientStack.Linden
                     textureAsset.Data = texture_list[i].AsBinary();
                     m_assetService.Store(textureAsset);
                     textures.Add(textureAsset.FullID);
+
+                    if (textureUploadFolder != null)
+                    {
+                        InventoryItemBase textureItem = new InventoryItemBase();
+                        textureItem.Owner = m_HostCapsObj.AgentID;
+                        textureItem.CreatorId = m_HostCapsObj.AgentID.ToString();
+                        textureItem.CreatorData = String.Empty;
+                        textureItem.ID = UUID.Random();
+                        textureItem.AssetID = textureAsset.FullID;
+                        textureItem.Description = assetDescription;
+                        textureItem.Name = assetName + " - Texture " + (i + 1).ToString();
+                        textureItem.AssetType = (int)AssetType.Texture;
+                        textureItem.InvType = (int)InventoryType.Texture;
+                        textureItem.Folder = textureUploadFolder.ID;
+                        textureItem.CurrentPermissions
+                            = (uint)(PermissionMask.Move | PermissionMask.Copy | PermissionMask.Modify | PermissionMask.Transfer | PermissionMask.Export);
+                        textureItem.BasePermissions = (uint)PermissionMask.All | (uint)PermissionMask.Export;
+                        textureItem.EveryOnePermissions = 0;
+                        textureItem.NextPermissions = (uint)PermissionMask.All;
+                        textureItem.CreationDate = Util.UnixTimeSinceEpoch();
+                        m_Scene.InventoryService.AddItem(textureItem);
+                        itemsToUpdate.Add(textureItem);
+
+                        m_log.DebugFormat(
+                            "[BUNCH OF CAPS]: Created new inventory item '{0}' ({1}) for texture uploaded with mesh object {2}", 
+                            textureItem.Name, textureItem.ID, assetName);
+                    }
+                }
+
+                if (clientInv != null && (foldersToUpdate.Count > 0 || itemsToUpdate.Count > 0))
+                {
+                    clientInv.SendBulkUpdateInventory(foldersToUpdate.ToArray(), itemsToUpdate.ToArray());
                 }
 
                 for (int i = 0; i < mesh_list.Count; i++)
@@ -701,9 +784,9 @@ namespace OpenSim.Region.ClientStack.Linden
             // If we set PermissionMask.All then when we rez the item the next permissions will replace the current
             // (owner) permissions.  This becomes a problem if next permissions are changed.
             item.CurrentPermissions
-                = (uint)(PermissionMask.Move | PermissionMask.Copy | PermissionMask.Modify | PermissionMask.Transfer);
+                = (uint)(PermissionMask.Move | PermissionMask.Copy | PermissionMask.Modify | PermissionMask.Transfer | PermissionMask.Export);
 
-            item.BasePermissions = (uint)PermissionMask.All;
+            item.BasePermissions = (uint)PermissionMask.All | (uint)PermissionMask.Export;
             item.EveryOnePermissions = 0;
             item.NextPermissions = (uint)PermissionMask.All;
             item.CreationDate = Util.UnixTimeSinceEpoch();
@@ -850,18 +933,26 @@ namespace OpenSim.Region.ClientStack.Linden
                 item = m_Scene.InventoryService.GetItem(new InventoryItemBase(itemID));
                 if (item != null)
                 {
-                    copyItem = m_Scene.GiveInventoryItem(m_HostCapsObj.AgentID, item.Owner, itemID, folderID);
-                    if (copyItem != null && client != null)
+                    string message;
+                    copyItem = m_Scene.GiveInventoryItem(m_HostCapsObj.AgentID, item.Owner, itemID, folderID, out message);
+                    if (client != null)
                     {
-                        m_log.InfoFormat("[CAPS]: CopyInventoryFromNotecard, ItemID:{0}, FolderID:{1}", copyItem.ID, copyItem.Folder);
-                        client.SendBulkUpdateInventory(copyItem);
+                        if (copyItem != null)
+                        {
+                            m_log.InfoFormat("[CAPS]: CopyInventoryFromNotecard, ItemID:{0}, FolderID:{1}", copyItem.ID, copyItem.Folder);
+                            client.SendBulkUpdateInventory(copyItem);
+                        }
+                        else
+                        {
+                            client.SendAgentAlertMessage(message, false);
+                        }
                     }
                 }
                 else
                 {
                     m_log.ErrorFormat("[CAPS]: CopyInventoryFromNotecard - Failed to retrieve item {0} from notecard {1}", itemID, notecardID);
                     if (client != null)
-                        client.SendAlertMessage("Failed to retrieve item");
+                        client.SendAgentAlertMessage("Failed to retrieve item", false);
                 }
             }
             catch (Exception e)
@@ -873,17 +964,49 @@ namespace OpenSim.Region.ClientStack.Linden
             return LLSDHelpers.SerialiseLLSDReply(response);
         }
 
-        public string UpdateAgentInformation(string request, string path,
+        public string GetObjectPhysicsData(string request, string path,
                 string param, IOSHttpRequest httpRequest,
                 IOSHttpResponse httpResponse)
         {
             OSDMap req = (OSDMap)OSDParser.DeserializeLLSDXml(request);
             OSDMap resp = new OSDMap();
+            OSDArray object_ids = (OSDArray)req["object_ids"];
 
-            OSDMap accessPrefs = new OSDMap();
-            accessPrefs["max"] = "A";
+            for (int i = 0 ; i < object_ids.Count ; i++)
+            {
+                UUID uuid = object_ids[i].AsUUID();
 
-            resp["access_prefs"] = accessPrefs;
+                SceneObjectPart obj = m_Scene.GetSceneObjectPart(uuid);
+                if (obj != null)
+                {
+                    OSDMap object_data = new OSDMap();
+
+                    object_data["PhysicsShapeType"] = obj.PhysicsShapeType;
+                    object_data["Density"] = obj.Density;
+                    object_data["Friction"] = obj.Friction;
+                    object_data["Restitution"] = obj.Restitution;
+                    object_data["GravityMultiplier"] = obj.GravityModifier;
+
+                    resp[uuid.ToString()] = object_data;
+                }
+            }
+
+            string response = OSDParser.SerializeLLSDXmlString(resp);
+            return response;
+        }
+
+        public string UpdateAgentInformation(string request, string path,
+                string param, IOSHttpRequest httpRequest,
+                IOSHttpResponse httpResponse)
+        {
+            OSDMap req = (OSDMap)OSDParser.DeserializeLLSDXml(request);
+            OSDMap accessPrefs = (OSDMap)req["access_prefs"];
+            string desiredMaturity = accessPrefs["max"];
+
+            OSDMap resp = new OSDMap();
+            OSDMap respAccessPrefs = new OSDMap();
+            respAccessPrefs["max"] = desiredMaturity;   // echoing the maturity back means success
+            resp["access_prefs"] = respAccessPrefs;
 
             string response = OSDParser.SerializeLLSDXmlString(resp);
             return response; 

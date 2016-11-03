@@ -50,6 +50,9 @@ namespace OpenSim.Framework
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+        public static readonly int MAX_ASSET_NAME = 64;
+        public static readonly int MAX_ASSET_DESC = 64;
+
         /// <summary>
         /// Data of the Asset
         /// </summary>
@@ -133,7 +136,7 @@ namespace OpenSim.Framework
             get
             {
                 return 
-                    (Type == (sbyte) AssetType.Animation ||
+                    (Type == (sbyte)AssetType.Animation ||
                      Type == (sbyte)AssetType.Gesture ||
                      Type == (sbyte)AssetType.Simstate ||
                      Type == (sbyte)AssetType.Unknown ||
@@ -143,13 +146,9 @@ namespace OpenSim.Framework
                      Type == (sbyte)AssetType.Texture ||
                      Type == (sbyte)AssetType.TextureTGA ||
                      Type == (sbyte)AssetType.Folder ||
-                     Type == (sbyte)AssetType.RootFolder ||
-                     Type == (sbyte)AssetType.LostAndFoundFolder ||
-                     Type == (sbyte)AssetType.SnapshotFolder ||
-                     Type == (sbyte)AssetType.TrashFolder ||
                      Type == (sbyte)AssetType.ImageJPEG ||
-                     Type == (sbyte) AssetType.ImageTGA ||
-                     Type == (sbyte) AssetType.LSLBytecode);
+                     Type == (sbyte)AssetType.ImageTGA ||
+                     Type == (sbyte)AssetType.LSLBytecode);
             }
         }
 

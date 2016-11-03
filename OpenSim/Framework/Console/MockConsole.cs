@@ -40,7 +40,9 @@ namespace OpenSim.Framework.Console
     /// </summary>
     public class MockConsole : ICommandConsole
     {
+#pragma warning disable 0067
         public event OnOutputDelegate OnOutput;
+#pragma warning restore 0067
 
         private MockCommands m_commands = new MockCommands();
 
@@ -80,6 +82,7 @@ namespace OpenSim.Framework.Console
         public void AddCommand(string module, bool shared, string command, string help, string longhelp, CommandDelegate fn) {}
         public void AddCommand(string module, bool shared, string command, string help, string longhelp, string descriptivehelp, CommandDelegate fn) {}
         public string[] FindNextOption(string[] cmd, bool term) { return null; }
+        public bool HasCommand(string cmd) { return false; }
         public string[] Resolve(string[] cmd) { return null; }
         public XmlElement GetXml(XmlDocument doc) { return null; }
     }

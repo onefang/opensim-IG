@@ -26,6 +26,8 @@
  */
 
 using OpenMetaverse;
+using OpenSim.Framework;
+using OpenSim.Services.Interfaces;
 
 namespace OpenSim.Region.Framework.Interfaces
 {
@@ -40,11 +42,17 @@ namespace OpenSim.Region.Framework.Interfaces
 
         uint GetRegionFlags();
         bool IsManager(UUID avatarID);
-        
+
+        string SetEstateOwner(int estateID, UserAccount account);
+        string SetEstateName(int estateID, string newName);
+        string SetRegionEstate(RegionInfo regionInfo, int estateID);
+        string CreateEstate(string estateName, UUID ownerID);
+
         /// <summary>
         /// Tell all clients about the current state of the region (terrain textures, water height, etc.).
         /// </summary>
         void sendRegionHandshakeToAll();
+        void TriggerEstateInfoChange();
 
         /// <summary>
         /// Fires the OnRegionInfoChange event.
@@ -53,5 +61,10 @@ namespace OpenSim.Region.Framework.Interfaces
 
         void setEstateTerrainBaseTexture(int level, UUID texture);
         void setEstateTerrainTextureHeights(int corner, float lowValue, float highValue);
+
+        /// <summary>
+        /// Returns whether the transfer ID is being used for a terrain transfer.
+        /// </summary>
+        bool IsTerrainXfer(ulong xferID);
     }
 }

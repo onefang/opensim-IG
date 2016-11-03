@@ -171,9 +171,10 @@ namespace OpenSim.Framework
         /// Soon to be decommissioned
         /// </summary>
         /// <param name="cAgent"></param>
-        public void CopyFrom(ChildAgentDataUpdate cAgent)
+        public void CopyFrom(ChildAgentDataUpdate cAgent, UUID sid)
         {
             AgentID = new UUID(cAgent.AgentID);
+            SessionID = sid;
 
             // next: ???
             Size = new Vector3();
@@ -229,12 +230,14 @@ namespace OpenSim.Framework
 
     public class ControllerData
     {
+        public UUID ObjectID;
         public UUID ItemID;
         public uint IgnoreControls;
         public uint EventControls;
 
-        public ControllerData(UUID item, uint ignore, uint ev)
+        public ControllerData(UUID obj, UUID item, uint ignore, uint ev)
         {
+            ObjectID = obj;
             ItemID = item;
             IgnoreControls = ignore;
             EventControls = ev;
@@ -248,6 +251,7 @@ namespace OpenSim.Framework
         public OSDMap PackUpdateMessage()
         {
             OSDMap controldata = new OSDMap();
+            controldata["object"] = OSD.FromUUID(ObjectID);
             controldata["item"] = OSD.FromUUID(ItemID);
             controldata["ignore"] = OSD.FromInteger(IgnoreControls);
             controldata["event"] = OSD.FromInteger(EventControls);
@@ -258,6 +262,8 @@ namespace OpenSim.Framework
 
         public void UnpackUpdateMessage(OSDMap args)
         {
+            if (args["object"] != null)
+                ObjectID = args["object"].AsUUID();
             if (args["item"] != null)
                 ItemID = args["item"].AsUUID();
             if (args["ignore"] != null)
@@ -286,7 +292,13 @@ namespace OpenSim.Framework
         public Vector3 AtAxis;
         public Vector3 LeftAxis;
         public Vector3 UpAxis;
-        public bool ChangedGrid;
+
+        /// <summary>
+        /// Signal on a V2 teleport that Scene.IncomingChildAgentDataUpdate(AgentData ad) should wait for the 
+        /// scene presence to become root (triggered when the viewer sends a CompleteAgentMovement UDP packet after
+        /// establishing the connection triggered by it's receipt of a TeleportFinish EQ message).
+        /// </summary>
+        public bool SenderWantsToWaitForRoot;
 
         public float Far;
         public float Aspect;
@@ -310,6 +322,8 @@ namespace OpenSim.Framework
         public Animation AnimState = null;
 
         public UUID GranterID;
+        public UUID ParentPart;
+        public Vector3 SitOffset;
 
         // Appearance
         public AvatarAppearance Appearance;
@@ -355,8 +369,9 @@ namespace OpenSim.Framework
             args["left_axis"] = OSD.FromString(LeftAxis.ToString());
             args["up_axis"] = OSD.FromString(UpAxis.ToString());
 
-            
-            args["changed_grid"] = OSD.FromBoolean(ChangedGrid);
+            //backwards compatibility
+            args["changed_grid"] = OSD.FromBoolean(SenderWantsToWaitForRoot);
+            args["wait_for_root"] = OSD.FromBoolean(SenderWantsToWaitForRoot);
             args["far"] = OSD.FromReal(Far);
             args["aspect"] = OSD.FromReal(Aspect);
 
@@ -428,9 +443,18 @@ namespace OpenSim.Framework
             // We might not pass this in all cases...
             if ((Appearance.Wearables != null) && (Appearance.Wearables.Length > 0))
             {
-                OSDArray wears = new OSDArray(Appearance.Wearables.Length);
-                foreach (AvatarWearable awear in Appearance.Wearables)
-                    wears.Add(awear.Pack());
+                int wearsCount;
+                if(Appearance.PackLegacyWearables)
+                    wearsCount = AvatarWearable.LEGACY_VERSION_MAX_WEARABLES;
+                else
+                    wearsCount = AvatarWearable.MAX_WEARABLES;
+
+                if(wearsCount > Appearance.Wearables.Length)
+                    wearsCount = Appearance.Wearables.Length;
+
+                OSDArray wears = new OSDArray(wearsCount);
+                for(int i = 0; i < wearsCount ; i++)
+                    wears.Add(Appearance.Wearables[i].Pack());
 
                 args["wearables"] = wears;
             }
@@ -480,6 +504,10 @@ namespace OpenSim.Framework
                 }
                 args["attach_objects"] = attObjs;
             }
+
+            args["parent_part"] = OSD.FromUUID(ParentPart);
+            args["sit_offset"] = OSD.FromString(SitOffset.ToString());
+
             return args;
         }
 
@@ -525,8 +553,8 @@ namespace OpenSim.Framework
             if (args["up_axis"] != null)
                 Vector3.TryParse(args["up_axis"].AsString(), out AtAxis);
 
-            if (args["changed_grid"] != null)
-                ChangedGrid = args["changed_grid"].AsBoolean();
+            if (args.ContainsKey("wait_for_root") && args["wait_for_root"] != null)
+                SenderWantsToWaitForRoot = args["wait_for_root"].AsBoolean();
 
             if (args["far"] != null)
                 Far = (float)(args["far"].AsReal());
@@ -646,7 +674,12 @@ namespace OpenSim.Framework
             if ((args["wearables"] != null) && (args["wearables"]).Type == OSDType.Array)
             {
                 OSDArray wears = (OSDArray)(args["wearables"]);
-                for (int i = 0; i < wears.Count / 2; i++) 
+
+                int count = wears.Count;
+                if (count > AvatarWearable.MAX_WEARABLES)
+                    count = AvatarWearable.MAX_WEARABLES;
+
+                for (int i = 0; i < count / 2; i++)
                 {
                     AvatarWearable awear = new AvatarWearable((OSDArray)wears[i]);
                     Appearance.SetWearable(i,awear);
@@ -711,6 +744,11 @@ namespace OpenSim.Framework
                     }
                 }
             }
+
+            if (args["parent_part"] != null)
+                ParentPart = args["parent_part"].AsUUID();
+            if (args["sit_offset"] != null)
+                Vector3.TryParse(args["sit_offset"].AsString(), out SitOffset);
         }
 
         public AgentData()

@@ -8,7 +8,7 @@ CREATE TABLE `auth` (
   `passwordSalt` char(32) NOT NULL default '',
   `webLoginKey` varchar(255) NOT NULL default '',
   PRIMARY KEY  (`UUID`)
-) ENGINE=MyISAM;
+) ENGINE=InnoDB;
 
 CREATE TABLE `tokens` (
   `UUID` char(36) NOT NULL,
@@ -18,7 +18,7 @@ CREATE TABLE `tokens` (
   KEY `UUID` (`UUID`),
   KEY `token` (`token`),
   KEY `validity` (`validity`)
-) ENGINE=MyISAM;
+) ENGINE=InnoDB;
 
 commit;
 

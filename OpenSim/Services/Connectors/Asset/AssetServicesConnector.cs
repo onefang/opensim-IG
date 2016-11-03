@@ -33,13 +33,12 @@ using System.Reflection;
 using Nini.Config;
 using OpenSim.Framework;
 using OpenSim.Framework.Console;
-using OpenSim.Framework.Communications;
 using OpenSim.Services.Interfaces;
 using OpenMetaverse;
 
 namespace OpenSim.Services.Connectors
 {
-    public class AssetServicesConnector : IAssetService
+    public class AssetServicesConnector : BaseServiceConnector, IAssetService
     {
         private static readonly ILog m_log =
                 LogManager.GetLogger(
@@ -55,6 +54,11 @@ namespace OpenSim.Services.Connectors
         // Maps: Asset ID -> Handlers which will be called when the asset has been loaded
         private Dictionary<string, AssetRetrievedEx> m_AssetHandlers = new Dictionary<string, AssetRetrievedEx>();
 
+        public int MaxAssetRequestConcurrency
+        {
+            get { return m_maxAssetRequestConcurrency; }
+            set { m_maxAssetRequestConcurrency = value; }
+        }
 
         public AssetServicesConnector()
         {
@@ -66,6 +70,7 @@ namespace OpenSim.Services.Connectors
         }
 
         public AssetServicesConnector(IConfigSource source)
+            : base(source, "AssetService")
         {
             Initialise(source);
         }
@@ -112,8 +117,16 @@ namespace OpenSim.Services.Connectors
 
             if (asset == null)
             {
-                asset = SynchronousRestObjectRequester.
-                        MakeRequest<int, AssetBase>("GET", uri, 0, m_maxAssetRequestConcurrency);
+                // XXX: Commented out for now since this has either never been properly operational or not for some time
+                // as m_maxAssetRequestConcurrency was being passed as the timeout, not a concurrency limiting option.
+                // Wasn't noticed before because timeout wasn't actually used.
+                // Not attempting concurrency setting for now as this omission was discovered in release candidate
+                // phase for OpenSimulator 0.8.  Need to revisit afterwards.
+//                asset
+//                    = SynchronousRestObjectRequester.MakeRequest<int, AssetBase>(
+//                        "GET", uri, 0, m_maxAssetRequestConcurrency);
+
+                asset = SynchronousRestObjectRequester.MakeRequest<int, AssetBase>("GET", uri, 0, m_Auth);
 
                 if (m_Cache != null)
                     m_Cache.Cache(asset);
@@ -143,8 +156,7 @@ namespace OpenSim.Services.Connectors
 
             string uri = m_ServerURI + "/assets/" + id + "/metadata";
 
-            AssetMetadata asset = SynchronousRestObjectRequester.
-                    MakeRequest<int, AssetMetadata>("GET", uri, 0);
+            AssetMetadata asset = SynchronousRestObjectRequester.MakeRequest<int, AssetMetadata>("GET", uri, 0, m_Auth);
             return asset;
         }
 
@@ -158,27 +170,29 @@ namespace OpenSim.Services.Connectors
                     return fullAsset.Data;
             }
 
-            RestClient rc = new RestClient(m_ServerURI);
-            rc.AddResourcePath("assets");
-            rc.AddResourcePath(id);
-            rc.AddResourcePath("data");
-
-            rc.RequestMethod = "GET";
-
-            Stream s = rc.Request();
-
-            if (s == null)
-                return null;
-
-            if (s.Length > 0)
+            using (RestClient rc = new RestClient(m_ServerURI))
             {
-                byte[] ret = new byte[s.Length];
-                s.Read(ret, 0, (int)s.Length);
+                rc.AddResourcePath("assets");
+                rc.AddResourcePath(id);
+                rc.AddResourcePath("data");
 
-                return ret;
+                rc.RequestMethod = "GET";
+
+                Stream s = rc.Request(m_Auth);
+
+                if (s == null)
+                    return null;
+
+                if (s.Length > 0)
+                {
+                    byte[] ret = new byte[s.Length];
+                    s.Read(ret, 0, (int)s.Length);
+
+                    return ret;
+                }
+
+                return null;
             }
-
-            return null;
         }
 
         public bool Get(string id, Object sender, AssetRetrieved handler)
@@ -216,7 +230,7 @@ namespace OpenSim.Services.Connectors
                     AsynchronousRestObjectRequester.MakeRequest<int, AssetBase>("GET", uri, 0,
                         delegate(AssetBase a)
                         {
-                            if (m_Cache != null)
+                            if (a != null && m_Cache != null)
                                 m_Cache.Cache(a);
 
                             AssetRetrievedEx handlers;
@@ -226,7 +240,7 @@ namespace OpenSim.Services.Connectors
                                 m_AssetHandlers.Remove(id);
                             }
                             handlers.Invoke(a);
-                        }, m_maxAssetRequestConcurrency);
+                        }, m_maxAssetRequestConcurrency, m_Auth);
                     
                     success = true;
                 }
@@ -249,9 +263,30 @@ namespace OpenSim.Services.Connectors
             return true;
         }
 
+        public virtual bool[] AssetsExist(string[] ids)
+        {
+            string uri = m_ServerURI + "/get_assets_exist";
+
+            bool[] exist = null;
+            try
+            {
+                exist = SynchronousRestObjectRequester.MakeRequest<string[], bool[]>("POST", uri, ids, m_Auth);
+            }
+            catch (Exception)
+            {
+                // This is most likely to happen because the server doesn't support this function,
+                // so just silently return "doesn't exist" for all the assets.
+            }
+            
+            if (exist == null)
+                exist = new bool[ids.Length];
+
+            return exist;
+        }
+
         public string Store(AssetBase asset)
         {
-            if (asset.Temporary || asset.Local)
+            if (asset.Local)
             {
                 if (m_Cache != null)
                     m_Cache.Cache(asset);
@@ -261,27 +296,32 @@ namespace OpenSim.Services.Connectors
 
             string uri = m_ServerURI + "/assets/";
 
-            string newID = string.Empty;
+            string newID;
             try
             {
-                newID = SynchronousRestObjectRequester.
-                        MakeRequest<AssetBase, string>("POST", uri, asset);
+                newID = SynchronousRestObjectRequester.MakeRequest<AssetBase, string>("POST", uri, asset, m_Auth);
             }
             catch (Exception e)
             {
-                m_log.WarnFormat("[ASSET CONNECTOR]: Unable to send asset {0} to asset server. Reason: {1}", asset.ID, e.Message);
+                m_log.Warn(string.Format("[ASSET CONNECTOR]: Unable to send asset {0} to asset server. Reason: {1} ", asset.ID, e.Message), e);
+                return string.Empty;
             }
 
-            if (newID != String.Empty)
+            // TEMPORARY: SRAS returns 'null' when it's asked to store existing assets
+            if (newID == null)
             {
-                // Placing this here, so that this work with old asset servers that don't send any reply back
-                // SynchronousRestObjectRequester returns somethins that is not an empty string
-                if (newID != null)
-                    asset.ID = newID;
-
-                if (m_Cache != null)
-                    m_Cache.Cache(asset);
+                m_log.DebugFormat("[ASSET CONNECTOR]: Storing of asset {0} returned null; assuming the asset already exists", asset.ID);
+                return asset.ID;
             }
+
+            if (string.IsNullOrEmpty(newID))
+                return string.Empty;
+
+            asset.ID = newID;
+
+            if (m_Cache != null)
+                m_Cache.Cache(asset);
+
             return newID;
         }
 
@@ -305,8 +345,7 @@ namespace OpenSim.Services.Connectors
 
             string uri = m_ServerURI + "/assets/" + id;
 
-            if (SynchronousRestObjectRequester.
-                    MakeRequest<AssetBase, bool>("POST", uri, asset))
+            if (SynchronousRestObjectRequester.MakeRequest<AssetBase, bool>("POST", uri, asset, m_Auth))
             {
                 if (m_Cache != null)
                     m_Cache.Cache(asset);
@@ -320,8 +359,7 @@ namespace OpenSim.Services.Connectors
         {
             string uri = m_ServerURI + "/assets/" + id;
 
-            if (SynchronousRestObjectRequester.
-                    MakeRequest<int, bool>("DELETE", uri, 0))
+            if (SynchronousRestObjectRequester.MakeRequest<int, bool>("DELETE", uri, 0, m_Auth))
             {
                 if (m_Cache != null)
                     m_Cache.Expire(id);

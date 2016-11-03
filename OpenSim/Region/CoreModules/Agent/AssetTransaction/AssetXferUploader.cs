@@ -31,8 +31,10 @@ using System.Reflection;
 using log4net;
 using OpenMetaverse;
 using OpenSim.Framework;
+using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Services.Interfaces;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.CoreModules.Agent.AssetTransaction
 {
@@ -317,12 +319,14 @@ namespace OpenSim.Region.CoreModules.Agent.AssetTransaction
                 m_asset.Description = item.Description;
                 m_asset.Type = (sbyte)item.AssetType;
 
-                // We must always store the item at this point even if the asset hasn't finished uploading, in order
-                // to avoid a race condition when the appearance module retrieves the item to set the asset id in
-                // the AvatarAppearance structure.
-                item.AssetID = m_asset.FullID;
-                if (item.AssetID != UUID.Zero)
+                if (m_asset.FullID != UUID.Zero)
+                {
+                    // We must always store the item at this point even if the asset hasn't finished uploading, in order
+                    // to avoid a race condition when the appearance module retrieves the item to set the asset id in
+                    // the AvatarAppearance structure.
+                    item.AssetID = m_asset.FullID;
                     m_Scene.InventoryService.UpdateItem(item);
+                }
 
                 if (m_uploadState == UploadState.Complete)
                 {
@@ -375,6 +379,8 @@ namespace OpenSim.Region.CoreModules.Agent.AssetTransaction
             m_Scene.AssetService.Store(m_asset);
 
             m_transactions.RemoveXferUploader(m_transactionID);
+
+            m_Scene.EventManager.TriggerOnNewInventoryItemUploadComplete(ourClient.AgentId, (AssetType)type, m_asset.FullID, m_asset.Name, 0);
         }
 
         /// <summary>
@@ -406,8 +412,8 @@ namespace OpenSim.Region.CoreModules.Agent.AssetTransaction
             item.AssetType = type;
             item.InvType = invType;
             item.Folder = InventFolder;
-            item.BasePermissions = 0x7fffffff;
-            item.CurrentPermissions = 0x7fffffff;
+            item.BasePermissions = (uint)(PermissionMask.All | PermissionMask.Export);
+            item.CurrentPermissions = item.BasePermissions;
             item.GroupPermissions=0;
             item.EveryOnePermissions=0;
             item.NextPermissions = nextPerm;
@@ -421,5 +427,6 @@ namespace OpenSim.Region.CoreModules.Agent.AssetTransaction
 
             m_transactions.RemoveXferUploader(m_transactionID);
         }
+
     }
 }

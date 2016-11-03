@@ -92,7 +92,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
         // Capability strings
         private static readonly string m_parcelVoiceInfoRequestPath = "0107/";
         private static readonly string m_provisionVoiceAccountRequestPath = "0108/";
-        private static readonly string m_chatSessionRequestPath = "0109/";
+        //private static readonly string m_chatSessionRequestPath = "0109/";
 
         // Control info, e.g. vivox server, admin user, admin password
         private static bool   m_pluginEnabled  = false;
@@ -117,6 +117,8 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
         
         private IConfig m_config;
 
+        private object m_Lock;
+
         public void Initialise(IConfigSource config)
         {
 
@@ -127,6 +129,8 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
 
             if (!m_config.GetBoolean("enabled", false))
                 return;
+
+            m_Lock = new object();
 
             try
             {
@@ -429,15 +433,15 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
                     "ParcelVoiceInfoRequest",
                     agentID.ToString()));
 
-            caps.RegisterHandler(
-                "ChatSessionRequest",
-                 new RestStreamHandler(
-                    "POST",
-                    capsBase + m_chatSessionRequestPath,
-                    (request, path, param, httpRequest, httpResponse)
-                        => ChatSessionRequest(scene, request, path, param, agentID, caps),
-                    "ChatSessionRequest",
-                    agentID.ToString()));
+            //caps.RegisterHandler(
+            //    "ChatSessionRequest",
+            //     new RestStreamHandler(
+            //        "POST",
+            //        capsBase + m_chatSessionRequestPath,
+            //        (request, path, param, httpRequest, httpResponse)
+            //            => ChatSessionRequest(scene, request, path, param, agentID, caps),
+            //        "ChatSessionRequest",
+            //        agentID.ToString()));
         }
 
         /// <summary>
@@ -818,11 +822,11 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
         {
             string requrl = String.Format(m_vivoxChannelPath, m_vivoxServer, "create", channelId, m_authToken);
 
-            if (parent != null && parent != String.Empty)
+            if (!string.IsNullOrEmpty(parent))
             {
                 requrl = String.Format("{0}&chan_parent={1}", requrl, parent);
             }
-            if (description != null && description != String.Empty)
+            if (!string.IsNullOrEmpty(description))
             {
                 requrl = String.Format("{0}&chan_desc={1}", requrl, description);
             }
@@ -832,7 +836,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
             requrl = String.Format("{0}&chan_roll_off={1}",          requrl, m_vivoxChannelRollOff);
             requrl = String.Format("{0}&chan_dist_model={1}",        requrl, m_vivoxChannelDistanceModel);
             requrl = String.Format("{0}&chan_max_range={1}",         requrl, m_vivoxChannelMaximumRange);
-            requrl = String.Format("{0}&chan_ckamping_distance={1}", requrl, m_vivoxChannelClampingDistance);
+            requrl = String.Format("{0}&chan_clamping_distance={1}", requrl, m_vivoxChannelClampingDistance);
             
             XmlElement resp = VivoxCall(requrl, true);
             if (XmlFind(resp, "response.level0.body.chan_uri", out channelUri))
@@ -858,7 +862,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
             //     requrl = String.Format("{0}&chan_parent={1}", requrl, parent);
             // }
 
-            if (description != null && description != String.Empty)
+            if (!string.IsNullOrEmpty(description))
             {
                 requrl = String.Format("{0}&chan_desc={1}", requrl, description);
             }
@@ -1043,7 +1047,7 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
         private XmlElement VivoxDeleteChannel(string parent, string channelid)
         {
             string requrl = String.Format(m_vivoxChannelDel, m_vivoxServer, "delete", channelid, m_authToken);
-            if (parent != null && parent != String.Empty)
+            if (!string.IsNullOrEmpty(parent))
             {
                 requrl = String.Format("{0}&chan_parent={1}", requrl, parent);
             }
@@ -1111,27 +1115,32 @@ namespace OpenSim.Region.OptionalModules.Avatar.Voice.VivoxVoice
 
             doc = new XmlDocument();
 
-            try
+            // Let's serialize all calls to Vivox. Most of these are driven by
+            // the clients (CAPs), when the user arrives at the region. We don't 
+            // want to issue many simultaneous http requests to Vivox, because mono
+            // doesn't like that
+            lock (m_Lock)
             {
-                // Otherwise prepare the request
-                m_log.DebugFormat("[VivoxVoice] Sending request <{0}>", requrl);
+                try
+                {
+                    // Otherwise prepare the request
+                    m_log.DebugFormat("[VivoxVoice] Sending request <{0}>", requrl);
 
-                HttpWebRequest  req = (HttpWebRequest)WebRequest.Create(requrl);
-                HttpWebResponse rsp = null;
+                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create(requrl);
 
-                // We are sending just parameters, no content
-                req.ContentLength = 0;
+                    // We are sending just parameters, no content
+                    req.ContentLength = 0;
 
-                // Send request and retrieve the response
-                rsp = (HttpWebResponse)req.GetResponse();
-
-                XmlTextReader rdr = new XmlTextReader(rsp.GetResponseStream());
-                doc.Load(rdr);
-                rdr.Close();
-            }
-            catch (Exception e)
-            {
-                m_log.ErrorFormat("[VivoxVoice] Error in admin call : {0}", e.Message);
+                    // Send request and retrieve the response
+                    using (HttpWebResponse rsp = (HttpWebResponse)req.GetResponse())
+                    using (Stream s = rsp.GetResponseStream())
+                    using (XmlTextReader rdr = new XmlTextReader(s))
+                        doc.Load(rdr);
+                }
+                catch (Exception e)
+                {
+                    m_log.ErrorFormat("[VivoxVoice] Error in admin call : {0}", e.Message);
+                }
             }
 
             // If we're debugging server responses, dump the whole

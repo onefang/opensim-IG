@@ -79,11 +79,37 @@ namespace OpenSim.Services.Connectors.Simulation
             return "agent/";
         }
 
-        public bool CreateAgent(GridRegion destination, AgentCircuitData aCircuit, uint flags, out string reason)
+        protected virtual void PackData(OSDMap args, GridRegion source, AgentCircuitData aCircuit, GridRegion destination, uint flags)
         {
-            // m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: CreateAgent start");
-            
+            if (source != null)
+            {
+                args["source_x"] = OSD.FromString(source.RegionLocX.ToString());
+                args["source_y"] = OSD.FromString(source.RegionLocY.ToString());
+                args["source_name"] = OSD.FromString(source.RegionName);
+                args["source_uuid"] = OSD.FromString(source.RegionID.ToString());
+                if (!String.IsNullOrEmpty(source.RawServerURI))
+                    args["source_server_uri"] = OSD.FromString(source.RawServerURI);
+            }
+
+            args["destination_x"] = OSD.FromString(destination.RegionLocX.ToString());
+            args["destination_y"] = OSD.FromString(destination.RegionLocY.ToString());
+            args["destination_name"] = OSD.FromString(destination.RegionName);
+            args["destination_uuid"] = OSD.FromString(destination.RegionID.ToString());
+            args["teleport_flags"] = OSD.FromString(flags.ToString());
+        }
+
+        public bool CreateAgent(GridRegion source, GridRegion destination, AgentCircuitData aCircuit, uint flags, out string reason)
+        {
+            string tmp = String.Empty;
+            return CreateAgent(source, destination, aCircuit, flags, out tmp, out reason);
+        }
+
+        public bool CreateAgent(GridRegion source, GridRegion destination, AgentCircuitData aCircuit, uint flags, out string myipaddress, out string reason)
+        {
+            m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: Creating agent at {0}", destination.ServerURI);
             reason = String.Empty;
+            myipaddress = String.Empty;
+
             if (destination == null)
             {
                 m_log.Debug("[REMOTE SIMULATION CONNECTOR]: Given destination is null");
@@ -95,12 +121,7 @@ namespace OpenSim.Services.Connectors.Simulation
             try
             {
                 OSDMap args = aCircuit.PackAgentCircuitData();
-
-                args["destination_x"] = OSD.FromString(destination.RegionLocX.ToString());
-                args["destination_y"] = OSD.FromString(destination.RegionLocY.ToString());
-                args["destination_name"] = OSD.FromString(destination.RegionName);
-                args["destination_uuid"] = OSD.FromString(destination.RegionID.ToString());
-                args["teleport_flags"] = OSD.FromString(flags.ToString());
+                PackData(args, source, aCircuit, destination, flags);
 
                 OSDMap result = WebUtil.PostToServiceCompressed(uri, args, 30000);
                 bool success = result["success"].AsBoolean();
@@ -110,11 +131,12 @@ namespace OpenSim.Services.Connectors.Simulation
 
                     reason = data["reason"].AsString();
                     success = data["success"].AsBoolean();
+                    myipaddress = data["your_ip"].AsString();
                     return success;
                 }
               
                 // Try the old version, uncompressed
-                result = WebUtil.PostToService(uri, args, 30000);
+                result = WebUtil.PostToService(uri, args, 30000, false);
 
                 if (result["Success"].AsBoolean())
                 {
@@ -124,6 +146,7 @@ namespace OpenSim.Services.Connectors.Simulation
 
                         reason = data["reason"].AsString();
                         success = data["success"].AsBoolean();
+                        myipaddress = data["your_ip"].AsString();
                         m_log.WarnFormat(
                             "[REMOTE SIMULATION CONNECTOR]: Remote simulator {0} did not accept compressed transfer, suggest updating it.", destination.RegionName);
                         return success;
@@ -228,7 +251,7 @@ namespace OpenSim.Services.Connectors.Simulation
         /// </summary>
         private bool UpdateAgent(GridRegion destination, IAgentData cAgentData, int timeout)
         {
-            // m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: UpdateAgent start");
+            // m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: UpdateAgent in {0}", destination.ServerURI);
 
             // Eventually, we want to use a caps url instead of the agentID
             string uri = destination.ServerURI + AgentPath() + cAgentData.AgentID + "/";
@@ -258,48 +281,10 @@ namespace OpenSim.Services.Connectors.Simulation
             return false;
         }
 
-        /// <summary>
-        /// Not sure what sequence causes this function to be invoked. The only calling
-        /// path is through the GET method 
-        /// </summary>
-        public bool RetrieveAgent(GridRegion destination, UUID id, out IAgentData agent)
-        {
-            // m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: RetrieveAgent start");
 
-            agent = null;
-
-            // Eventually, we want to use a caps url instead of the agentID
-            string uri = destination.ServerURI + AgentPath() + id + "/" + destination.RegionID.ToString() + "/";
-
-            try
-            {
-                OSDMap result = WebUtil.GetFromService(uri, 10000);
-                if (result["Success"].AsBoolean())
-                {
-                    // OSDMap args = Util.GetOSDMap(result["_RawResult"].AsString());
-                    OSDMap args = (OSDMap)result["_Result"];
-                    if (args != null)
-                    {
-                        agent = new CompleteAgentData();
-                        agent.Unpack(args, null);
-                        return true;
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                m_log.Warn("[REMOTE SIMULATION CONNECTOR]: UpdateAgent failed with exception: " + e.ToString());
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// </summary>
-        public bool QueryAccess(GridRegion destination, UUID id, Vector3 position, out string version, out string reason)
+        public bool QueryAccess(GridRegion destination, UUID agentID, string agentHomeURI, bool viaTeleport, Vector3 position, List<UUID> featuresAvailable, EntityTransferContext ctx, out string reason)
         {
             reason = "Failed to contact destination";
-            version = "Unknown";
 
             // m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: QueryAccess start, position={0}", position);
 
@@ -307,14 +292,32 @@ namespace OpenSim.Services.Connectors.Simulation
             if (ext == null) return false;
 
             // Eventually, we want to use a caps url instead of the agentID
-            string uri = destination.ServerURI + AgentPath() + id + "/" + destination.RegionID.ToString() + "/";
+            string uri = destination.ServerURI + AgentPath() + agentID + "/" + destination.RegionID.ToString() + "/";
 
             OSDMap request = new OSDMap();
+            request.Add("viaTeleport", OSD.FromBoolean(viaTeleport));
             request.Add("position", OSD.FromString(position.ToString()));
+            // To those who still understad this field, we're telling them 
+            // the lowest version just to be safe
+            request.Add("my_version", OSD.FromString(String.Format("SIMULATION/{0}", VersionInfo.SimulationServiceVersionSupportedMin)));
+            // New simulation service negotiation
+            request.Add("simulation_service_supported_min", OSD.FromReal(VersionInfo.SimulationServiceVersionSupportedMin));
+            request.Add("simulation_service_supported_max", OSD.FromReal(VersionInfo.SimulationServiceVersionSupportedMax));
+            request.Add("simulation_service_accepted_min", OSD.FromReal(VersionInfo.SimulationServiceVersionAcceptedMin));
+            request.Add("simulation_service_accepted_max", OSD.FromReal(VersionInfo.SimulationServiceVersionAcceptedMax));
+
+            OSDArray features = new OSDArray();
+            foreach (UUID feature in featuresAvailable)
+                features.Add(OSD.FromString(feature.ToString()));
+
+            request.Add("features", features);
+
+            if (agentHomeURI != null)
+                request.Add("agent_home_uri", OSD.FromString(agentHomeURI));
 
             try
             {
-                OSDMap result = WebUtil.ServiceOSDRequest(uri, request, "QUERYACCESS", 30000, false);
+                OSDMap result = WebUtil.ServiceOSDRequest(uri, request, "QUERYACCESS", 30000, false, false);
                 bool success = result["success"].AsBoolean();
                 if (result.ContainsKey("_Result"))
                 {
@@ -325,15 +328,32 @@ namespace OpenSim.Services.Connectors.Simulation
                     success = data["success"];
 
                     reason = data["reason"].AsString();
-                    if (data["version"] != null && data["version"].AsString() != string.Empty)
-                        version = data["version"].AsString();
+                    // We will need to plumb this and start sing the outbound version as well
+                    // TODO: lay the pipe for version plumbing
+                    if (data.ContainsKey("negotiated_inbound_version") && data["negotiated_inbound_version"] != null)
+                    {
+                        ctx.InboundVersion = (float)data["negotiated_inbound_version"].AsReal();
+                        ctx.OutboundVersion = (float)data["negotiated_outbound_version"].AsReal();
+                    }
+                    else if (data["version"] != null && data["version"].AsString() != string.Empty)
+                    {
+                        string versionString = data["version"].AsString();
+                        String[] parts = versionString.Split(new char[] {'/'});
+                        if (parts.Length > 1)
+                        {
+                            ctx.InboundVersion = float.Parse(parts[1]);
+                            ctx.OutboundVersion = float.Parse(parts[1]);
+                        }
+                    }
+                    if (data.ContainsKey("variable_wearables_count_supported"))
+                        ctx.VariableWearablesSupported = true;
 
                     m_log.DebugFormat(
-                        "[REMOTE SIMULATION CONNECTOR]: QueryAccess to {0} returned {1}, reason {2}, version {3} ({4})",
-                        uri, success, reason, version, data["version"].AsString());
+                        "[REMOTE SIMULATION CONNECTOR]: QueryAccess to {0} returned {1}, reason {2}, version {3}/{4}",
+                        uri, success, reason, ctx.InboundVersion, ctx.OutboundVersion);
                 }
 
-                if (!success)
+                if (!success || ctx.InboundVersion == 0f || ctx.OutboundVersion == 0f)
                 {
                     // If we don't check this then OpenSimulator 0.7.3.1 and some period before will never see the
                     // actual failure message
@@ -359,6 +379,17 @@ namespace OpenSim.Services.Connectors.Simulation
                     return false;
                 }
 
+
+                featuresAvailable.Clear();
+
+                if (result.ContainsKey("features"))
+                {
+                    OSDArray array = (OSDArray)result["features"];
+
+                    foreach (OSD o in array)
+                        featuresAvailable.Add(new UUID(o.AsString()));
+                }
+
                 return success;
             }
             catch (Exception e)
@@ -377,7 +408,7 @@ namespace OpenSim.Services.Connectors.Simulation
 
             try
             {
-                WebUtil.ServiceOSDRequest(uri, null, "DELETE", 10000, false);
+                WebUtil.ServiceOSDRequest(uri, null, "DELETE", 10000, false, false);
             }
             catch (Exception e)
             {
@@ -389,15 +420,14 @@ namespace OpenSim.Services.Connectors.Simulation
 
         /// <summary>
         /// </summary>
-        public bool CloseAgent(GridRegion destination, UUID id)
+        public bool CloseAgent(GridRegion destination, UUID id, string auth_code)
         {
-//            m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: CloseAgent start");
-
-            string uri = destination.ServerURI + AgentPath() + id + "/" + destination.RegionID.ToString() + "/";
+            string uri = destination.ServerURI + AgentPath() + id + "/" + destination.RegionID.ToString() + "/?auth=" + auth_code;
+            m_log.DebugFormat("[REMOTE SIMULATION CONNECTOR]: CloseAgent {0}", uri);
 
             try
             {
-                WebUtil.ServiceOSDRequest(uri, null, "DELETE", 10000, false);
+                WebUtil.ServiceOSDRequest(uri, null, "DELETE", 10000, false, false);
             }
             catch (Exception e)
             {
@@ -444,11 +474,18 @@ namespace OpenSim.Services.Connectors.Simulation
                 args["destination_name"] = OSD.FromString(destination.RegionName);
                 args["destination_uuid"] = OSD.FromString(destination.RegionID.ToString());
 
-                WebUtil.PostToService(uri, args, 40000);
+                OSDMap result = WebUtil.PostToService(uri, args, 40000, false);
+
+                if (result == null)
+                    return false;
+                bool success = result["success"].AsBoolean();
+                if (!success)
+                    return false;
             }
             catch (Exception e)
             {
                 m_log.WarnFormat("[REMOTE SIMULATION CONNECTOR] CreateObject failed with exception; {0}",e.ToString());
+                return false;
             }
 
             return true;

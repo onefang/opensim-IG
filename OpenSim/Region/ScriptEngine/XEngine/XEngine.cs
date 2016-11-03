@@ -42,22 +42,26 @@ using OpenMetaverse.StructuredData;
 using log4net;
 using Nini.Config;
 using Amib.Threading;
+using Mono.Addins;
 using OpenSim.Framework;
 using OpenSim.Framework.Console;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Interfaces;
+using OpenSim.Region.ScriptEngine.Interfaces;
 using OpenSim.Region.ScriptEngine.Shared;
 using OpenSim.Region.ScriptEngine.Shared.CodeTools;
 using OpenSim.Region.ScriptEngine.Shared.Instance;
 using OpenSim.Region.ScriptEngine.Shared.Api;
 using OpenSim.Region.ScriptEngine.Shared.Api.Plugins;
-using OpenSim.Region.ScriptEngine.Interfaces;
+using OpenSim.Region.ScriptEngine.Shared.ScriptBase;
+using OpenSim.Region.ScriptEngine.XEngine.ScriptBase;
 using Timer = OpenSim.Region.ScriptEngine.Shared.Api.Plugins.Timer;
 
 using ScriptCompileQueue = OpenSim.Framework.LocklessQueue<object[]>;
 
 namespace OpenSim.Region.ScriptEngine.XEngine
 {
+    [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "XEngine")]
     public class XEngine : INonSharedRegionModule, IScriptModule, IScriptEngine
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
@@ -68,7 +72,13 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         /// <remarks>
         /// If DebugLevel >= 1, then we log every time that a script is started.
         /// </remarks>
-//        public int DebugLevel { get; set; }
+        public int DebugLevel { get; set; }
+
+        /// <summary>
+        /// A parameter to allow us to notify the log if at least one script has a compilation that is not compatible
+        /// with ScriptStopStrategy.
+        /// </summary>
+        public bool HaveNotifiedLogOfScriptStopMistmatch { get; private set; }
 
         private SmartThreadPool m_ThreadPool;
         private int m_MaxScriptQueue;
@@ -84,6 +94,12 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         /// </summary>
         private int m_StartDelay;
 
+        /// <summary>
+        /// Are we stopping scripts co-operatively by inserting checks in them at C# compile time (true) or aborting
+        /// their threads (false)?
+        /// </summary>
+        private bool m_coopTermination;
+
         private int m_IdleTimeout;
         private int m_StackSize;
         private int m_SleepTime;
@@ -93,7 +109,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         private bool m_InitialStartup = true;
         private int m_ScriptFailCount; // Number of script fails since compile queue was last empty
         private string m_ScriptErrorMessage;
-        private Dictionary<string, string> m_uniqueScripts = new Dictionary<string, string>();
         private bool m_AppDomainLoading;
         private Dictionary<UUID,ArrayList> m_ScriptErrors =
                 new Dictionary<UUID,ArrayList>();
@@ -175,6 +190,14 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             get { return "XEngine"; }
         }
 
+        public string ScriptClassName { get; private set; }
+
+        public string ScriptBaseClassName { get; private set; }
+
+        public ParameterInfo[] ScriptBaseClassParameters { get; private set; }
+
+        public string[] ScriptReferencedAssemblies { get; private set; }
+
         public Scene World
         {
             get { return m_Scene; }
@@ -229,20 +252,35 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
             m_ScriptConfig = configSource.Configs["XEngine"];
             m_ConfigSource = configSource;
+
+            string rawScriptStopStrategy = m_ScriptConfig.GetString("ScriptStopStrategy", "co-op");
+
+            m_log.InfoFormat("[XEngine]: Script stop strategy is {0}", rawScriptStopStrategy);
+
+            if (rawScriptStopStrategy == "co-op")
+            {
+                m_coopTermination = true;
+                ScriptClassName = "XEngineScript";
+                ScriptBaseClassName = typeof(XEngineScriptBase).FullName;
+                ScriptBaseClassParameters = typeof(XEngineScriptBase).GetConstructor(new Type[] { typeof(WaitHandle) }).GetParameters();
+                ScriptReferencedAssemblies = new string[] { Path.GetFileName(typeof(XEngineScriptBase).Assembly.Location) };
+            }
+            else
+            {
+                ScriptClassName = "Script";
+                ScriptBaseClassName = typeof(ScriptBaseClass).FullName;
+            }
+
+//            Console.WriteLine("ASSEMBLY NAME: {0}", ScriptReferencedAssemblies[0]);
         }
 
         public void AddRegion(Scene scene)
         {
             if (m_ScriptConfig == null)
                 return;
+
             m_ScriptFailCount = 0;
             m_ScriptErrorMessage = String.Empty;
-
-            if (m_ScriptConfig == null)
-            {
-//                m_log.ErrorFormat("[XEngine] No script configuration found. Scripts disabled");
-                return;
-            }
 
             m_Enabled = m_ScriptConfig.GetBoolean("Enabled", true);
 
@@ -365,19 +403,19 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 (module, cmdparams) => HandleScriptsAction(cmdparams, HandleStartScript));
 
             MainConsole.Instance.Commands.AddCommand(
-                "Scripts", false, "debug scripts log", "debug scripts log <item-id> <log-level>", "Extra debug logging for a script",
+                "Debug", false, "debug scripts log", "debug scripts log <item-id> <log-level>", "Extra debug logging for a particular script.",
                 "Activates or deactivates extra debug logging for the given script.\n"
                     + "Level == 0, deactivate extra debug logging.\n"
                     + "Level >= 1, log state changes.\n"
                     + "Level >= 2, log event invocations.\n",
                 HandleDebugScriptLogCommand);
 
-//            MainConsole.Instance.Commands.AddCommand(
-//                "Debug", false, "debug xengine", "debug xengine [<level>]",
-//                "Turn on detailed xengine debugging.",
-//                  "If level <= 0, then no extra logging is done.\n"
-//                + "If level >= 1, then we log every time that a script is started.",
-//                HandleDebugLevelCommand);
+            MainConsole.Instance.Commands.AddCommand(
+                "Debug", false, "debug xengine log", "debug xengine log [<level>]",
+                "Turn on detailed xengine debugging.",
+                  "If level <= 0, then no extra logging is done.\n"
+                + "If level >= 1, then we log every time that a script is started.",
+                HandleDebugLevelCommand);
         }
 
         private void HandleDebugScriptLogCommand(string module, string[] args)
@@ -420,26 +458,26 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         /// </summary>
         /// <param name="module"></param>
         /// <param name="args"></param>
-//        private void HandleDebugLevelCommand(string module, string[] args)
-//        {
-//            if (args.Length == 3)
-//            {
-//                int newDebug;
-//                if (int.TryParse(args[2], out newDebug))
-//                {
-//                    DebugLevel = newDebug;
-//                    MainConsole.Instance.OutputFormat("Debug level set to {0}", newDebug);
-//                }
-//            }
-//            else if (args.Length == 2)
-//            {
-//                MainConsole.Instance.OutputFormat("Current debug level is {0}", DebugLevel);
-//            }
-//            else
-//            {
-//                MainConsole.Instance.Output("Usage: debug xengine 0..1");
-//            }
-//        }
+        private void HandleDebugLevelCommand(string module, string[] args)
+        {
+            if (args.Length >= 4)
+            {
+                int newDebug;
+                if (ConsoleUtil.TryParseConsoleNaturalInt(MainConsole.Instance, args[3], out newDebug))
+                {
+                    DebugLevel = newDebug;
+                    MainConsole.Instance.OutputFormat("Debug level set to {0} in XEngine for region {1}", newDebug, m_Scene.Name);
+                }
+            }
+            else if (args.Length == 3)
+            {
+                MainConsole.Instance.OutputFormat("Current debug level is {0}", DebugLevel);
+            }
+            else
+            {
+                MainConsole.Instance.Output("Usage: debug xengine log <level>");
+            }
+        }
 
         /// <summary>
         /// Parse the raw item id into a script instance from the command params if it's present.
@@ -459,7 +497,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         /// <param name="instance"></param>
         /// <param name="keySelector">Basis on which to sort output.  Can be null if no sort needs to take place</param>
         private void HandleScriptsAction<TKey>(
-            string[] cmdparams, Action<IScriptInstance> action, Func<IScriptInstance, TKey> keySelector)
+            string[] cmdparams, Action<IScriptInstance> action, System.Func<IScriptInstance, TKey> keySelector)
         {
             if (!(MainConsole.Instance.ConsoleScene == null || MainConsole.Instance.ConsoleScene == m_Scene))
                 return;
@@ -517,7 +555,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             if (!(MainConsole.Instance.ConsoleScene == null || MainConsole.Instance.ConsoleScene == m_Scene))
                 return;
 
-            MainConsole.Instance.OutputFormat(GetStatusReport());
+            MainConsole.Instance.Output(GetStatusReport());
         }
 
         public string GetStatusReport()
@@ -539,7 +577,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             }
 
             sb.AppendFormat("Scripts loaded             : {0}\n", scriptsLoaded);
-            sb.AppendFormat("Unique scripts             : {0}\n", m_uniqueScripts.Count);
             sb.AppendFormat("Scripts waiting for load   : {0}\n", m_CompileQueue.Count);
             sb.AppendFormat("Max threads                : {0}\n", m_ThreadPool.MaxThreads);
             sb.AppendFormat("Min threads                : {0}\n", m_ThreadPool.MinThreads);
@@ -616,7 +653,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             sb.AppendFormat("Containing part UUID: {0}\n", instance.ObjectID);
             sb.AppendFormat("Position            : {0}\n", sop.AbsolutePosition);
 
-            MainConsole.Instance.OutputFormat(sb.ToString());
+            MainConsole.Instance.Output(sb.ToString());
         }
 
         private void HandleSuspendScript(IScriptInstance instance)
@@ -662,6 +699,8 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         {
             if (instance.Running)
             {
+                instance.StayStopped = true;    // the script was stopped explicitly
+
                 instance.Stop(0);
 
                 SceneObjectPart sop = m_Scene.GetSceneObjectPart(instance.ObjectID);
@@ -685,28 +724,23 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 {
                     // Force a final state save
                     //
-                    if (m_Assemblies.ContainsKey(instance.AssetID))
+                    try
                     {
-                        string assembly = m_Assemblies[instance.AssetID];
-
-                        try
-                        {
-                            instance.SaveState(assembly);
-                        }
-                        catch (Exception e)
-                        {
-                            m_log.Error(
-                                string.Format(
-                                    "[XEngine]: Failed final state save for script {0}.{1}, item UUID {2}, prim UUID {3} in {4}.  Exception ",
-                                    instance.PrimName, instance.ScriptName, instance.ItemID, instance.ObjectID, World.Name)
-                                , e);
-                        }
+                        if (instance.StatePersistedHere)
+                            instance.SaveState();
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.Error(
+                            string.Format(
+                                "[XEngine]: Failed final state save for script {0}.{1}, item UUID {2}, prim UUID {3} in {4}.  Exception ",
+                                instance.PrimName, instance.ScriptName, instance.ItemID, instance.ObjectID, World.Name)
+                            , e);
                     }
 
                     // Clear the event queue and abort the instance thread
                     //
-                    instance.ClearQueue();
-                    instance.Stop(0);
+                    instance.Stop(0, true);
 
                     // Release events, timer, etc
                     //
@@ -804,23 +838,23 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             lock (m_Scripts)
             {
                 foreach (IScriptInstance instance in m_Scripts.Values)
-                    instances.Add(instance);
+                {
+                    if (instance.StatePersistedHere)
+                    {
+//                        m_log.DebugFormat(
+//                            "[XEngine]: Adding script {0}.{1}, item UUID {2}, prim UUID {3} in {4} for state persistence",
+//                            instance.PrimName, instance.ScriptName, instance.ItemID, instance.ObjectID, World.Name);
+
+                        instances.Add(instance);
+                    }
+                }
             }
 
             foreach (IScriptInstance i in instances)
             {
-                string assembly = String.Empty;
-
-                lock (m_Scripts)
-                {
-                    if (!m_Assemblies.ContainsKey(i.AssetID))
-                        continue;
-                    assembly = m_Assemblies[i.AssetID];
-                }
-
                 try
                 {
-                    i.SaveState(assembly);
+                    i.SaveState();
                 }
                 catch (Exception e)
                 {
@@ -832,8 +866,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 }
             }
 
-            instances.Clear();
-
             if (saveTime > 0)
                 m_ThreadPool.QueueWorkItem(new WorkItemCallback(this.DoBackup),
                                            new Object[] { saveTime });
@@ -843,6 +875,14 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
         public void SaveAllState()
         {
+            DoBackup(new object[] { 0 });
+        }
+
+        public object DoMaintenance(object p)
+        {
+            object[] parms = (object[])p;
+            int sleepTime = (int)parms[0];
+
             foreach (IScriptInstance inst in m_Scripts.Values)
             {
                 if (inst.EventTime() > m_EventLimit)
@@ -852,14 +892,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                         inst.Start();
                 }
             }
-        }
-
-        public object DoMaintenance(object p)
-        {
-            object[] parms = (object[])p;
-            int sleepTime = (int)parms[0];
-
-            SaveAllState();
 
             System.Threading.Thread.Sleep(sleepTime);
 
@@ -937,8 +969,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                             if (restOfFirstLine.StartsWith("c#")
                                 || restOfFirstLine.StartsWith("vb")
                                 || restOfFirstLine.StartsWith("lsl")
-                                || restOfFirstLine.StartsWith("js")
-                                || restOfFirstLine.StartsWith("yp")
                                 || restOfFirstLine.Length == 0)
                                 warnRunningInXEngine = true;
 
@@ -972,12 +1002,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             if (engine != ScriptEngineName)
                 return;
 
-            // If we've seen this exact script text before, use that reference instead
-            if (m_uniqueScripts.ContainsKey(script))
-                script = m_uniqueScripts[script];
-            else
-                m_uniqueScripts[script] = script;
-
             Object[] parms = new Object[]{localID, itemID, script, startParam, postOnRez, (StateSource)stateSource};
 
             if (stateSource == (int)StateSource.ScriptedRez)
@@ -991,11 +1015,12 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             }
             else
             {
-                m_CompileQueue.Enqueue(parms);
                 lock (m_CompileDict)
-                {
                     m_CompileDict[itemID] = 0;
-                }
+
+                // This must occur after the m_CompileDict so that an existing compile thread cannot hit the check
+                // in DoOnRezScript() before m_CompileDict has been updated.
+                m_CompileQueue.Enqueue(parms);
 
 //                m_log.DebugFormat("[XEngine]: Added script {0} to compile queue", itemID);
 
@@ -1017,49 +1042,81 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
         public Object DoOnRezScriptQueue(Object dummy)
         {
-            if (m_InitialStartup)
+            try
             {
-                // This delay exists to stop mono problems where script compilation and startup would stop the sim
-                // working properly for the session.
-                System.Threading.Thread.Sleep(m_StartDelay);
-
-                m_log.InfoFormat("[XEngine]: Performing initial script startup on {0}", m_Scene.Name);
-            }
-
-            object[] o;
-
-            int scriptsStarted = 0;
-
-            while (m_CompileQueue.Dequeue(out o))
-            {
-                if (DoOnRezScript(o))
+                if (m_InitialStartup)
                 {
-                    scriptsStarted++;
+                    // This delay exists to stop mono problems where script compilation and startup would stop the sim
+                    // working properly for the session.
+                    System.Threading.Thread.Sleep(m_StartDelay);
 
-                    if (m_InitialStartup)
-                        if (scriptsStarted % 50 == 0)
-                            m_log.InfoFormat(
-                                "[XEngine]: Started {0} scripts in {1}", scriptsStarted, m_Scene.Name);
+                    m_log.InfoFormat("[XEngine]: Performing initial script startup on {0}", m_Scene.Name);
+                }
+
+                object[] o;
+
+                int scriptsStarted = 0;
+
+                while (m_CompileQueue.Dequeue(out o))
+                {
+                    try
+                    {
+                        if (DoOnRezScript(o))
+                        {
+                            scriptsStarted++;
+
+                            if (m_InitialStartup)
+                                if (scriptsStarted % 50 == 0)
+                                    m_log.InfoFormat(
+                                        "[XEngine]: Started {0} scripts in {1}", scriptsStarted, m_Scene.Name);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.Error(
+                            string.Format(
+                                "[XEngine]: Failure in DoOnRezScriptQueue() for item {0} in {1}.  Continuing.  Exception  ", 
+                                o[1], m_Scene.Name), 
+                            e);
+                    }
+                }
+
+                if (m_InitialStartup)
+                    m_log.InfoFormat(
+                        "[XEngine]: Completed starting {0} scripts on {1}", scriptsStarted, m_Scene.Name);
+
+            }
+            catch (Exception e)
+            {
+                m_log.Error(
+                    string.Format("[XEngine]: Failure in DoOnRezScriptQueue() in {0}.  Exception  ", m_Scene.Name), e);
+            }
+            finally
+            {
+                // FIXME: On failure we must trigger this even if the compile queue is not actually empty so that the 
+                // RegionReadyModule is not forever waiting.  This event really needs a different name.
+                m_Scene.EventManager.TriggerEmptyScriptCompileQueue(m_ScriptFailCount,
+                                                                    m_ScriptErrorMessage);
+
+                m_ScriptFailCount = 0;
+                m_InitialStartup = false;
+
+                // NOTE: Despite having a lockless queue, this lock is required
+                // to make sure there is never no compile thread while there
+                // are still scripts to compile. This could otherwise happen
+                // due to a race condition
+                //
+                lock (m_CompileQueue)
+                {
+                    m_CurrentCompile = null;
+
+                    // This is to avoid a situation where the m_CompileQueue while loop above could complete but 
+                    // OnRezScript() place a new script on the queue and check m_CurrentCompile = null before we hit 
+                    // this section.
+                    if (m_CompileQueue.Count > 0)
+                        m_CurrentCompile = m_ThreadPool.QueueWorkItem(DoOnRezScriptQueue, null);
                 }
             }
-
-            if (m_InitialStartup)
-                m_log.InfoFormat(
-                    "[XEngine]: Completed starting {0} scripts on {1}", scriptsStarted, m_Scene.Name);
-
-            // NOTE: Despite having a lockless queue, this lock is required
-            // to make sure there is never no compile thread while there
-            // are still scripts to compile. This could otherwise happen
-            // due to a race condition
-            //
-            lock (m_CompileQueue)
-                m_CurrentCompile = null;
-
-            m_Scene.EventManager.TriggerEmptyScriptCompileQueue(m_ScriptFailCount,
-                                                                m_ScriptErrorMessage);
-
-            m_ScriptFailCount = 0;
-            m_InitialStartup = false;
 
             return null;
         }
@@ -1106,16 +1163,17 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 return false;
             }
 
-            m_log.DebugFormat(
-                "[XEngine] Loading script {0}.{1}, item UUID {2}, prim UUID {3} @ {4}.{5}",
-                part.ParentGroup.RootPart.Name, item.Name, itemID, part.UUID,
-                part.ParentGroup.RootPart.AbsolutePosition, part.ParentGroup.Scene.RegionInfo.RegionName);
+            if (DebugLevel > 0)
+                m_log.DebugFormat(
+                    "[XEngine]: Loading script {0}.{1}, item UUID {2}, prim UUID {3} @ {4}.{5}",
+                    part.ParentGroup.RootPart.Name, item.Name, itemID, part.UUID,
+                    part.ParentGroup.RootPart.AbsolutePosition, part.ParentGroup.Scene.RegionInfo.RegionName);
 
             UUID assetID = item.AssetID;
 
             ScenePresence presence = m_Scene.GetScenePresence(item.OwnerID);
 
-            string assembly = "";
+            string assemblyPath = "";
 
             Culture.SetCurrentCulture();
 
@@ -1127,11 +1185,16 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 {
                     lock (m_AddingAssemblies)
                     {
-                        m_Compiler.PerformScriptCompile(script, assetID.ToString(), item.OwnerID, out assembly, out linemap);
-                        if (!m_AddingAssemblies.ContainsKey(assembly)) {
-                            m_AddingAssemblies[assembly] = 1;
+                        m_Compiler.PerformScriptCompile(script, assetID.ToString(), item.OwnerID, out assemblyPath, out linemap);
+
+//                        m_log.DebugFormat(
+//                            "[XENGINE]: Found assembly path {0} onrez {1} in {2}", 
+//                            assemblyPath, item.ItemID, World.Name);
+
+                        if (!m_AddingAssemblies.ContainsKey(assemblyPath)) {
+                            m_AddingAssemblies[assemblyPath] = 1;
                         } else {
-                            m_AddingAssemblies[assembly]++;
+                            m_AddingAssemblies[assemblyPath]++;
                         }
                     }
 
@@ -1177,7 +1240,9 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 }
                 catch (Exception e)
                 {
-//                    m_log.ErrorFormat("[XEngine]: Exception when rezzing script {0}{1}", e.Message, e.StackTrace);
+//                    m_log.ErrorFormat(
+//                        "[XEngine]: Exception when rezzing script with item ID {0}, {1}{2}", 
+//                        itemID, e.Message, e.StackTrace);
 
     //                try
     //                {
@@ -1274,19 +1339,144 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                             m_ScriptFailCount++;
                             lock (m_AddingAssemblies) 
                             {
-                                m_AddingAssemblies[assembly]--;
+                                m_AddingAssemblies[assemblyPath]--;
                             }
                             return false;
                         }
                     }
                     m_DomainScripts[appDomain].Add(itemID);
 
+                    IScript scriptObj = null;
+                    EventWaitHandle coopSleepHandle;
+                    bool coopTerminationForThisScript;
+
+                    // Set up assembly name to point to the appropriate scriptEngines directory
+                    AssemblyName assemblyName = new AssemblyName(Path.GetFileNameWithoutExtension(assemblyPath));
+                    assemblyName.CodeBase = Path.GetDirectoryName(assemblyPath);
+
+                    if (m_coopTermination)
+                    {
+                        try
+                        {
+                            coopSleepHandle = new XEngineEventWaitHandle(false, EventResetMode.AutoReset);
+
+                            scriptObj 
+                                = (IScript)m_AppDomains[appDomain].CreateInstanceAndUnwrap(
+                                    assemblyName.FullName,
+                                    "SecondLife.XEngineScript",
+                                    false,
+                                    BindingFlags.Default,
+                                    null,
+                                    new object[] { coopSleepHandle }, 
+                                    null,
+                                    null);
+
+                            coopTerminationForThisScript = true;
+                        }
+                        catch (TypeLoadException)
+                        {
+                            coopSleepHandle = null;
+
+                            try
+                            {
+                                scriptObj 
+                                    = (IScript)m_AppDomains[appDomain].CreateInstanceAndUnwrap(
+                                        assemblyName.FullName,
+                                        "SecondLife.Script",
+                                        false,
+                                        BindingFlags.Default,
+                                        null,
+                                        null,
+                                        null,
+                                        null);
+                            }
+                            catch (Exception e2)
+                            {
+                                m_log.Error(
+                                    string.Format(
+                                        "[XENGINE]: Could not load previous SecondLife.Script from assembly {0} in {1}.  Not starting.  Exception  ", 
+                                        assemblyName.FullName, World.Name),
+                                    e2);
+
+                                return false;
+                            }
+
+                            coopTerminationForThisScript = false;
+                        }
+                    }
+                    else
+                    {
+                        try
+                        {
+                            scriptObj 
+                                = (IScript)m_AppDomains[appDomain].CreateInstanceAndUnwrap(
+                                    assemblyName.FullName,
+                                    "SecondLife.Script",
+                                    false,
+                                    BindingFlags.Default,
+                                    null,
+                                    null,
+                                    null,
+                                    null);
+
+                            coopSleepHandle = null;
+                            coopTerminationForThisScript = false;
+                        }
+                        catch (TypeLoadException)
+                        {
+                            coopSleepHandle = new XEngineEventWaitHandle(false, EventResetMode.AutoReset);
+
+                            try
+                            {
+                                scriptObj 
+                                    = (IScript)m_AppDomains[appDomain].CreateInstanceAndUnwrap(
+                                        assemblyName.FullName,
+                                        "SecondLife.XEngineScript",
+                                        false,
+                                        BindingFlags.Default,
+                                        null,
+                                        new object[] { coopSleepHandle },
+                                        null,
+                                        null);
+                            }
+                            catch (Exception e2)
+                            {
+                                m_log.Error(
+                                    string.Format(
+                                        "[XENGINE]: Could not load previous SecondLife.XEngineScript from assembly {0} in {1}.  Not starting.  Exception  ", 
+                                        assemblyName.FullName, World.Name),
+                                    e2);
+
+                                return false;
+                            }
+
+                            coopTerminationForThisScript = true;
+                        }
+                    }
+
+                    if (m_coopTermination != coopTerminationForThisScript && !HaveNotifiedLogOfScriptStopMistmatch)
+                    {
+                        // Notify the log that there is at least one script compile that doesn't match the
+                        // ScriptStopStrategy.  Operator has to manually delete old DLLs - we can't do this on Windows
+                        // once the assembly has been loaded evne if the instantiation of a class was unsuccessful.
+                        m_log.WarnFormat(
+                            "[XEngine]: At least one existing compiled script DLL in {0} has {1} as ScriptStopStrategy whereas config setting is {2}."
+                            + "\nContinuing with script compiled strategy but to remove this message please set [XEngine] DeleteScriptsOnStartup = true for one simulator session to remove old script DLLs (script state will not be lost).",
+                            World.Name, coopTerminationForThisScript ? "co-op" : "abort", m_coopTermination ? "co-op" : "abort");
+
+                        HaveNotifiedLogOfScriptStopMistmatch = true;
+                    }
+
                     instance = new ScriptInstance(this, part,
-                                                  itemID, assetID, assembly,
-                                                  m_AppDomains[appDomain],
-                                                  part.ParentGroup.RootPart.Name,
-                                                  item.Name, startParam, postOnRez,
-                                                  stateSource, m_MaxScriptQueue);
+                                                  item,
+                                                  startParam, postOnRez,
+                                                  m_MaxScriptQueue);
+
+                    if (
+                        !instance.Load(
+                            scriptObj, coopSleepHandle, assemblyPath,
+                            Path.Combine(ScriptEnginePath, World.RegionInfo.RegionID.ToString()), stateSource, coopTerminationForThisScript))
+                            return false;
 
 //                    if (DebugLevel >= 1)
 //                    m_log.DebugFormat(
@@ -1317,11 +1507,11 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             }
 
             if (!m_Assemblies.ContainsKey(assetID))
-                m_Assemblies[assetID] = assembly;
+                m_Assemblies[assetID] = assemblyPath;
 
             lock (m_AddingAssemblies) 
             {
-                m_AddingAssemblies[assembly]--;
+                m_AddingAssemblies[assemblyPath]--;
             }
 
             if (instance != null) 
@@ -1359,11 +1549,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 m_Scripts.Remove(itemID);
             }
 
-            instance.ClearQueue();
-
-            instance.Stop(m_WaitForEventCompletionOnScriptStop);
-
-//                bool objectRemoved = false;
+            instance.Stop(m_WaitForEventCompletionOnScriptStop, true);
 
             lock (m_PrimObjects)
             {
@@ -1376,14 +1562,13 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
                     // If there are no more scripts, remove prim
                     if (m_PrimObjects[localID].Count == 0)
-                    {
                         m_PrimObjects.Remove(localID);
-//                            objectRemoved = true;
-                    }
                 }
             }
 
-            instance.RemoveState();
+            if (instance.StatePersistedHere)
+                instance.RemoveState(); 
+
             instance.DestroyScriptInstance();
 
             m_DomainScripts[instance.AppDomain].Remove(instance.ItemID);
@@ -1489,7 +1674,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             startInfo.MaxWorkerThreads = maxThreads;
             startInfo.MinWorkerThreads = minThreads;
             startInfo.ThreadPriority = threadPriority;;
-            startInfo.StackSize = stackSize;
+            startInfo.MaxStackSize = stackSize;
             startInfo.StartSuspended = true;
 
             m_ThreadPool = new SmartThreadPool(startInfo);
@@ -1516,7 +1701,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
             IScriptInstance instance = (ScriptInstance) parms;
             
-            //m_log.DebugFormat("[XEngine]: Processing event for {0}", instance);
+//            m_log.DebugFormat("[XEngine]: Processing event for {0}", instance);
 
             return instance.EventProcessor();
         }
@@ -1681,9 +1866,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         public bool GetScriptState(UUID itemID)
         {
             IScriptInstance instance = GetInstance(itemID);
-            if (instance != null)
-                return instance.Running;
-            return false;
+            return instance != null && instance.Running;
         }
 
         public void ApiResetScript(UUID itemID)
@@ -1691,6 +1874,12 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             IScriptInstance instance = GetInstance(itemID);
             if (instance != null)
                 instance.ApiResetScript();
+
+            // Send the new number of threads that are in use by the thread
+            // pool, I believe that by adding them to the locations where the
+            // script is changing states that I will catch all changes to the
+            // thread pool
+            m_Scene.setThreadCount(m_ThreadPool.InUseThreads);
         }
 
         public void ResetScript(UUID itemID)
@@ -1698,6 +1887,12 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             IScriptInstance instance = GetInstance(itemID);
             if (instance != null)
                 instance.ResetScript(m_WaitForEventCompletionOnScriptStop);
+
+            // Send the new number of threads that are in use by the thread
+            // pool, I believe that by adding them to the locations where the
+            // script is changing states that I will catch all changes to the
+            // thread pool
+            m_Scene.setThreadCount(m_ThreadPool.InUseThreads);
         }
 
         public void StartScript(UUID itemID)
@@ -1707,6 +1902,12 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 instance.Start();
             else
                 m_runFlags.AddOrUpdate(itemID, true, 240);
+
+            // Send the new number of threads that are in use by the thread
+            // pool, I believe that by adding them to the locations where the
+            // script is changing states that I will catch all changes to the
+            // thread pool
+            m_Scene.setThreadCount(m_ThreadPool.InUseThreads);
         }
 
         public void StopScript(UUID itemID)
@@ -1714,17 +1915,29 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             IScriptInstance instance = GetInstance(itemID);
 
             if (instance != null)
+            {
+                lock (instance.EventQueue)
+                    instance.StayStopped = true;    // the script was stopped explicitly
+
                 instance.Stop(m_WaitForEventCompletionOnScriptStop);
+            }
             else
+            {
+//                m_log.DebugFormat("[XENGINE]: Could not find script with ID {0} to stop in {1}", itemID, World.Name);
                 m_runFlags.AddOrUpdate(itemID, false, 240);
+            }
+
+            // Send the new number of threads that are in use by the thread
+            // pool, I believe that by adding them to the locations where the
+            // script is changing states that I will catch all changes to the
+            // thread pool
+            m_Scene.setThreadCount(m_ThreadPool.InUseThreads);
         }
 
         public DetectParams GetDetectParams(UUID itemID, int idx)
         {
             IScriptInstance instance = GetInstance(itemID);
-            if (instance != null)
-                return instance.GetDetectParams(idx);
-            return null;
+            return instance != null ? instance.GetDetectParams(idx) : null;
         }
 
         public void SetMinEventDelay(UUID itemID, double delay)
@@ -1737,9 +1950,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         public UUID GetDetectID(UUID itemID, int idx)
         {
             IScriptInstance instance = GetInstance(itemID);
-            if (instance != null)
-                return instance.GetDetectID(idx);
-            return UUID.Zero;
+            return instance != null ? instance.GetDetectID(idx) : UUID.Zero;
         }
 
         public void SetState(UUID itemID, string newState)
@@ -1753,9 +1964,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         public int GetStartParameter(UUID itemID)
         {
             IScriptInstance instance = GetInstance(itemID);
-            if (instance == null)
-                return 0;
-            return instance.StartParam;
+            return instance == null ? 0 : instance.StartParam;
         }
 
         public void OnShutdown()
@@ -1789,9 +1998,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         public IScriptApi GetApi(UUID itemID, string name)
         {
             IScriptInstance instance = GetInstance(itemID);
-            if (instance == null)
-                return null;
-            return instance.GetApi(name);
+            return instance == null ? null : instance.GetApi(name);
         }
 
         public void OnGetScriptRunning(IClientAPI controllingClient, UUID objectID, UUID itemID)
@@ -2090,7 +2297,8 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                     catch (IOException ex)
                     {
                         // if there already exists a file at that location, it may be locked.
-                        m_log.ErrorFormat("[XEngine]: Linemap file {0} already exists! {1}", mappath, ex.Message);
+                        m_log.Error(
+                            string.Format("[XEngine]: Linemap file {0} could not be written.  Exception  ", mappath), ex);
                     }
                 }
             }
@@ -2116,6 +2324,9 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 m_log.ErrorFormat("[XEngine]: Error whilst writing state file {0}, {1}", statepath, ex.Message);
             }
 
+//            m_log.DebugFormat(
+//                "[XEngine]: Wrote state for script item with ID {0} at {1} in {2}", itemID, statepath, m_Scene.Name);
+
             return true;
         }
 
@@ -2137,7 +2348,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
         public Dictionary<uint, float> GetObjectScriptsExecutionTimes()
         {
-            long tickNow = Util.EnvironmentTickCount();
             Dictionary<uint, float> topScripts = new Dictionary<uint, float>();
 
             lock (m_Scripts)
@@ -2147,7 +2357,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                     if (!topScripts.ContainsKey(si.LocalID))
                         topScripts[si.RootLocalID] = 0;
 
-                    topScripts[si.RootLocalID] += CalculateAdjustedExectionTime(si, tickNow);
+                    topScripts[si.RootLocalID] += GetExectionTime(si);
                 }
             }
 
@@ -2161,7 +2371,6 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 return 0.0f;
             }
             float time = 0.0f;
-            long tickNow = Util.EnvironmentTickCount();
             IScriptInstance si;
             // Calculate the time for all scripts that this engine is executing
             // Ignore any others
@@ -2170,36 +2379,15 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 si = GetInstance(id);
                 if (si != null && si.Running)
                 {
-                    time += CalculateAdjustedExectionTime(si, tickNow);
+                    time += GetExectionTime(si);
                 }
             }
             return time;
         }
 
-        private float CalculateAdjustedExectionTime(IScriptInstance si, long tickNow)
+        private float GetExectionTime(IScriptInstance si)
         {
-            long ticksElapsed = tickNow - si.MeasurementPeriodTickStart;
-
-            // Avoid divide by zero
-            if (ticksElapsed == 0)
-                ticksElapsed = 1;
-
-            // Scale execution time to the ideal 55 fps frame time for these reasons.
-            //
-            // 1) XEngine does not execute scripts per frame, unlike other script engines.  Hence, there is no
-            // 'script execution time per frame', which is the original purpose of this value.
-            //
-            // 2) Giving the raw execution times is misleading since scripts start at different times, making
-            // it impossible to compare scripts.
-            //
-            // 3) Scaling the raw execution time to the time that the script has been running is better but
-            // is still misleading since a script that has just been rezzed may appear to have been running
-            // for much longer.
-            //
-            // 4) Hence, we scale execution time to an idealised frame time (55 fps).  This is also not perfect
-            // since the figure does not represent actual execution time and very hard running scripts will
-            // never exceed 18ms (though this is a very high number for script execution so is a warning sign).
-            return ((float)si.MeasurementPeriodExecutionTime / ticksElapsed) * 18.1818f;
+            return (float)si.ExecutionTime.GetSumTime().TotalMilliseconds;
         }
 
         public void SuspendScript(UUID itemID)
@@ -2211,6 +2399,12 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 instance.Suspend();
 //            else
 //                m_log.DebugFormat("[XEngine]: Could not find script with ID {0} to resume", itemID);
+
+            // Send the new number of threads that are in use by the thread
+            // pool, I believe that by adding them to the locations where the
+            // script is changing states that I will catch all changes to the
+            // thread pool
+            m_Scene.setThreadCount(m_ThreadPool.InUseThreads);
         }
 
         public void ResumeScript(UUID itemID)
@@ -2222,6 +2416,12 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                 instance.Resume();
 //            else
 //                m_log.DebugFormat("[XEngine]: Could not find script with ID {0} to resume", itemID);
+
+            // Send the new number of threads that are in use by the thread
+            // pool, I believe that by adding them to the locations where the
+            // script is changing states that I will catch all changes to the
+            // thread pool
+            m_Scene.setThreadCount(m_ThreadPool.InUseThreads);
         }
 
         public bool HasScript(UUID itemID, out bool running)
@@ -2234,6 +2434,31 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
             running = instance.Running;
             return true;
+        }
+
+        public void SleepScript(UUID itemID, int delay)
+        {
+            IScriptInstance instance = GetInstance(itemID);
+            if (instance == null)
+                return;
+
+            instance.ExecutionTimer.Stop();
+            try
+            {
+                if (instance.CoopWaitHandle != null)
+                {
+                    if (instance.CoopWaitHandle.WaitOne(delay))
+                        throw new ScriptCoopStopException();
+                }
+                else
+                {
+                    Thread.Sleep(delay);
+                }
+            }
+            finally
+            {
+                instance.ExecutionTimer.Start();
+            }
         }
     }
 }

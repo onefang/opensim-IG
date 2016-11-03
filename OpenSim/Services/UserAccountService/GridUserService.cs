@@ -43,15 +43,117 @@ namespace OpenSim.Services.UserAccountService
     public class GridUserService : GridUserServiceBase, IGridUserService
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+        private static bool m_Initialized;
 
         public GridUserService(IConfigSource config) : base(config) 
         {
-            m_log.Debug("[USER GRID SERVICE]: Starting user grid service");
+            m_log.Debug("[GRID USER SERVICE]: Starting user grid service");
+
+            if (!m_Initialized)
+            {
+                m_Initialized = true;
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Users", false,
+                    "show grid user",
+                    "show grid user <ID>",
+                    "Show grid user entry or entries that match or start with the given ID.  This will normally be a UUID.",
+                    "This is for debug purposes to see what data is found for a particular user id.",
+                    HandleShowGridUser);
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Users", false,
+                    "show grid users online",
+                    "show grid users online",
+                    "Show number of grid users registered as online.",
+                    "This number may not be accurate as a region may crash or not be cleanly shutdown and leave grid users shown as online\n."
+                    + "For this reason, users online for more than 5 days are not currently counted",
+                    HandleShowGridUsersOnline);
+            }
+        }
+
+        protected void HandleShowGridUser(string module, string[] cmdparams)
+        {
+            if (cmdparams.Length != 4)
+            {
+                MainConsole.Instance.Output("Usage: show grid user <UUID>");
+                return;
+            }
+
+            GridUserData[] data = m_Database.GetAll(cmdparams[3]);
+
+            foreach (GridUserData gu in data)
+            {
+                ConsoleDisplayList cdl = new ConsoleDisplayList();
+
+                cdl.AddRow("User ID", gu.UserID);
+
+                foreach (KeyValuePair<string,string> kvp in gu.Data)
+                    cdl.AddRow(kvp.Key, kvp.Value);
+
+                MainConsole.Instance.Output(cdl.ToString());
+            }
+
+            MainConsole.Instance.OutputFormat("Entries: {0}", data.Length);
+        }
+
+        protected void HandleShowGridUsersOnline(string module, string[] cmdparams)
+        {
+//            if (cmdparams.Length != 4)
+//            {
+//                MainConsole.Instance.Output("Usage: show grid users online");
+//                return;
+//            }
+
+//            int onlineCount;
+            int onlineRecentlyCount = 0;
+
+            DateTime now = DateTime.UtcNow;
+
+            foreach (GridUserData gu in m_Database.GetAll(""))
+            {
+                if (bool.Parse(gu.Data["Online"]))
+                {
+//                    onlineCount++;
+
+                    int unixLoginTime = int.Parse(gu.Data["Login"]);
+
+                    if ((now - Util.ToDateTime(unixLoginTime)).Days < 5)
+                        onlineRecentlyCount++;
+                }
+            }
+
+            MainConsole.Instance.OutputFormat("Users online: {0}", onlineRecentlyCount);
+        }
+
+        private GridUserData GetGridUserData(string userID)
+        {
+            GridUserData d = null;
+            if (userID.Length > 36) // it's a UUI
+            {
+                d = m_Database.Get(userID);
+            }
+            else // it's a UUID
+            {
+                GridUserData[] ds = m_Database.GetAll(userID);
+                if (ds == null)
+                    return null;
+
+                if (ds.Length > 0)
+                {
+                    d = ds[0];
+                    foreach (GridUserData dd in ds)
+                        if (dd.UserID.Length > d.UserID.Length) // find the longest
+                            d = dd;
+                }
+            }
+
+            return d;
         }
 
         public virtual GridUserInfo GetGridUserInfo(string userID)
         {
-            GridUserData d = m_Database.Get(userID);
+            GridUserData d = GetGridUserData(userID);
 
             if (d == null)
                 return null;
@@ -73,7 +175,7 @@ namespace OpenSim.Services.UserAccountService
             return info;
         }
 
-        public GridUserInfo[] GetGridUserInfo(string[] userIDs)
+        public virtual GridUserInfo[] GetGridUserInfo(string[] userIDs)
         {
             List<GridUserInfo> ret = new List<GridUserInfo>();
 
@@ -86,7 +188,8 @@ namespace OpenSim.Services.UserAccountService
         public GridUserInfo LoggedIn(string userID)
         {
             m_log.DebugFormat("[GRID USER SERVICE]: User {0} is online", userID);
-            GridUserData d = m_Database.Get(userID);
+
+            GridUserData d = GetGridUserData(userID);
 
             if (d == null)
             {
@@ -104,8 +207,9 @@ namespace OpenSim.Services.UserAccountService
 
         public bool LoggedOut(string userID, UUID sessionID, UUID regionID, Vector3 lastPosition, Vector3 lastLookAt)
         {
-            m_log.DebugFormat("[GRID USER SERVICE]: User {0} is offline", userID);
-            GridUserData d = m_Database.Get(userID);
+            m_log.InfoFormat("[GRID USER SERVICE]: User {0} is offline", userID);
+
+            GridUserData d = GetGridUserData(userID);
 
             if (d == null)
             {
@@ -124,7 +228,8 @@ namespace OpenSim.Services.UserAccountService
 
         public bool SetHome(string userID, UUID homeID, Vector3 homePosition, Vector3 homeLookAt)
         {
-            GridUserData d = m_Database.Get(userID);
+            GridUserData d = GetGridUserData(userID);
+
             if (d == null)
             {
                 d = new GridUserData();
@@ -140,8 +245,10 @@ namespace OpenSim.Services.UserAccountService
 
         public bool SetLastPosition(string userID, UUID sessionID, UUID regionID, Vector3 lastPosition, Vector3 lastLookAt)
         {
-            //m_log.DebugFormat("[Grid User Service]: SetLastPosition for {0}", userID);
-            GridUserData d = m_Database.Get(userID);
+//            m_log.DebugFormat("[GRID USER SERVICE]: SetLastPosition for {0}", userID);
+
+            GridUserData d = GetGridUserData(userID);
+
             if (d == null)
             {
                 d = new GridUserData();

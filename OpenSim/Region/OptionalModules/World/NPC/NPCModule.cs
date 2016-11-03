@@ -181,17 +181,6 @@ namespace OpenSim.Region.OptionalModules.World.NPC
             AvatarAppearance npcAppearance = new AvatarAppearance(appearance, true);
             acd.Appearance = npcAppearance;
 
-            /*
-            for (int i = 0;
-                    i < acd.Appearance.Texture.FaceTextures.Length; i++)
-            {
-                m_log.DebugFormat(
-                        "[NPC MODULE]: NPC avatar {0} has texture id {1} : {2}",
-                        acd.AgentID, i,
-                        acd.Appearance.Texture.FaceTextures[i]);
-            }
-            */
-
             lock (m_avatars)
             {
                 scene.AuthenticateHandler.AddNewCircuit(npcAvatar.CircuitCode,
@@ -201,12 +190,6 @@ namespace OpenSim.Region.OptionalModules.World.NPC
                 ScenePresence sp;
                 if (scene.TryGetScenePresence(npcAvatar.AgentId, out sp))
                 {
-                    /*
-                    m_log.DebugFormat(
-                            "[NPC MODULE]: Successfully retrieved scene presence for NPC {0} {1}",
-                            sp.Name, sp.UUID);
-                    */
-
                     sp.CompleteMovement(npcAvatar, false);
                     m_avatars.Add(npcAvatar.AgentId, npcAvatar);
                     m_log.DebugFormat("[NPC MODULE]: Created NPC {0} {1}", npcAvatar.AgentId, sp.Name);
@@ -236,11 +219,6 @@ namespace OpenSim.Region.OptionalModules.World.NPC
                     {
                         if (sp.IsSatOnObject || sp.SitGround)
                             return false;
-
-//                        m_log.DebugFormat(
-//                                "[NPC MODULE]: Moving {0} to {1} in {2}, noFly {3}, landAtTarget {4}",
-//                                sp.Name, pos, scene.RegionInfo.RegionName,
-//                                noFly, landAtTarget);
 
                         sp.MoveToTarget(pos, noFly, landAtTarget);
                         sp.SetAlwaysRun = running;
@@ -404,10 +382,6 @@ namespace OpenSim.Region.OptionalModules.World.NPC
             {
                 if (m_avatars.TryGetValue(agentID, out av))
                 {
-                    /*
-                    m_log.DebugFormat("[NPC MODULE]: Found {0} {1} to remove",
-                            agentID, av.Name);
-                    */
                     doRemove = true;
                 }
             }

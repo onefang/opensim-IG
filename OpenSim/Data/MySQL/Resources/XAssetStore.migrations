@@ -16,13 +16,13 @@ CREATE TABLE `XAssetsMeta` (
   `AssetFlags` int(11) NOT NULL,
   `CreatorID` varchar(128) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Version 1';
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='Version 1';
 
 CREATE TABLE `XAssetsData` (
   `Hash` binary(32) NOT NULL,
   `Data` longblob NOT NULL,
   PRIMARY KEY (`hash`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Version 1';
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='Version 1';
 
 COMMIT;
 

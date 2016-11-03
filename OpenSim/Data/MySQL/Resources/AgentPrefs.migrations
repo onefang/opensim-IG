@@ -13,6 +13,6 @@ CREATE TABLE `AgentPrefs` (
     `PermNextOwner` INT(6) NOT NULL DEFAULT 532480,
     UNIQUE KEY `PrincipalID` (`PrincipalID`),
     PRIMARY KEY(`PrincipalID`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 COMMIT;

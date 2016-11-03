@@ -146,7 +146,7 @@ CREATE TABLE `land` (
   `UserLookAtZ` float default NULL,
   `AuthbuyerID` varchar(36) NOT NULL default '00000000-0000-0000-0000-000000000000',
   PRIMARY KEY  (`UUID`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 CREATE TABLE `landaccesslist` (
   `LandUUID` varchar(255) default NULL,
@@ -168,7 +168,7 @@ COMMIT;
 :VERSION 3			#---------------------
 
 BEGIN;
-  CREATE TABLE regionban (regionUUID VARCHAR(36) NOT NULL, bannedUUID VARCHAR(36) NOT NULL, bannedIp VARCHAR(16) NOT NULL, bannedIpHostMask VARCHAR(16) NOT NULL) ENGINE=INNODB DEFAULT CHARSET=utf8 COMMENT='Rev. 1';
+  CREATE TABLE regionban (regionUUID VARCHAR(36) NOT NULL, bannedUUID VARCHAR(36) NOT NULL, bannedIp VARCHAR(16) NOT NULL, bannedIpHostMask VARCHAR(16) NOT NULL) ENGINE=MyISAM DEFAULT CHARSET=utf8 COMMENT='Rev. 1';
 COMMIT;
 
 :VERSION 4			#---------------------
@@ -226,13 +226,13 @@ COMMIT;
 
 BEGIN;
 
-alter table landaccesslist ENGINE = InnoDB;
-alter table migrations ENGINE = InnoDB;
-alter table primitems ENGINE = InnoDB;
-alter table prims ENGINE = InnoDB;
-alter table primshapes ENGINE = InnoDB;
-alter table regionsettings ENGINE = InnoDB;
-alter table terrain ENGINE = InnoDB;
+alter table landaccesslist ENGINE = MyISAM;
+alter table migrations ENGINE = MyISAM;
+alter table primitems ENGINE = MyISAM;
+alter table prims ENGINE = MyISAM;
+alter table primshapes ENGINE = MyISAM;
+alter table regionsettings ENGINE = MyISAM;
+alter table terrain ENGINE = MyISAM;
 
 COMMIT;
 
@@ -384,7 +384,7 @@ CREATE TABLE `regionsettings` (
   `covenant` char(36) default NULL,
   `Sandbox` tinyint(4) NOT NULL,
   PRIMARY KEY  (`regionUUID`)
-) ENGINE=InnoDB;
+) ENGINE=MyISAM;
 
 commit;
 
@@ -852,7 +852,7 @@ CREATE TABLE IF NOT EXISTS `spawn_points` (
   `Pitch` float NOT NULL,
   `Distance` float NOT NULL,
   KEY `RegionID` (`RegionID`)
-) ENGINE=Innodb;
+) ENGINE=MyISAM;
 
 ALTER TABLE `regionsettings` ADD COLUMN `TelehubObject` varchar(36) NOT NULL;
 COMMIT;
@@ -891,7 +891,7 @@ CREATE TABLE `regionenvironment` (
   `region_id` varchar(36) NOT NULL,
   `llsd_settings` TEXT NOT NULL,
   PRIMARY KEY (`region_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 COMMIT;
 

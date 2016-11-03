@@ -33,7 +33,7 @@ CREATE TABLE `regions` (
   KEY `regionName` (`regionName`),
   KEY `regionHandle` (`regionHandle`),
   KEY `overrideHandles` (`eastOverrideHandle`,`westOverrideHandle`,`southOverrideHandle`,`northOverrideHandle`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 COMMIT;
 

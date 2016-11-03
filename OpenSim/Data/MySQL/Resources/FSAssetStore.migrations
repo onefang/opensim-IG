@@ -13,6 +13,6 @@ CREATE TABLE `fsassets` (
   `access_time` int(11) NOT NULL DEFAULT '0',
   `asset_flags` int(11) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 COMMIT;

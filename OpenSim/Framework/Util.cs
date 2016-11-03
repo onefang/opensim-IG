@@ -987,7 +987,7 @@ namespace OpenSim.Framework
 
         public static string configDir()
         {
-            return ".";
+            return "../config";
         }
 
         public static string dataDir()
@@ -1005,7 +1005,7 @@ namespace OpenSim.Framework
                 }
             }
 
-            return "./OpenSim.log";
+            return "../logs/OpenSim.log";
         }
 
         public static string logDir()

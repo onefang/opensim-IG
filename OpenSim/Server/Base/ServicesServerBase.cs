@@ -85,7 +85,7 @@ namespace OpenSim.Server.Base
             string fileName = "";
             if (Assembly.GetEntryAssembly() != null)
                 fileName = Path.GetFileNameWithoutExtension(Assembly.GetEntryAssembly().Location);
-            string iniFile = fileName + ".ini";
+            string iniFile = "../config/" + fileName + ".ini";
             string logConfig = null;
 
             IConfig startupConfig = argvConfig.Configs["Startup"];

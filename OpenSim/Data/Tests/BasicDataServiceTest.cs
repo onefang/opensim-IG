@@ -106,7 +106,7 @@ namespace OpenSim.Data.Tests
                 if (String.IsNullOrEmpty(m_connStr))
                 {
                     m_file = Path.GetTempFileName() + ".db";
-                    m_connStr = "URI=file:" + m_file + ",version=3";
+                    m_connStr = "URI=file:../db/" + m_file + ",version=3";
                 }
             }
 

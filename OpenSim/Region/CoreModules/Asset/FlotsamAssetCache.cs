@@ -64,7 +64,7 @@ namespace OpenSim.Region.CoreModules.Asset
         private bool m_Enabled;
 
         private const string m_ModuleName = "FlotsamAssetCache";
-        private const string m_DefaultCacheDirectory = "./assetcache";
+        private const string m_DefaultCacheDirectory = "../caches/assetcache";
         private string m_CacheDirectory = m_DefaultCacheDirectory;
 
         private readonly List<char> m_InvalidChars = new List<char>();

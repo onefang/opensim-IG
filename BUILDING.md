@@ -4,7 +4,7 @@ Steps:
  * runprebuild.bat
  * Load OpenSim.sln into Visual Studio .NET and build the solution.
  * chdir bin 
- * copy OpenSim.ini.example to OpenSim.ini and other appropriate files in bin/config-include
+ * copy OpenSim.ini.example to OpenSim.ini and other appropriate files in config/config-include
  * run OpenSim.exe
 
 # Building on Linux
@@ -21,7 +21,7 @@ From the distribution type:
  * ./runprebuild.sh
  * nant (or !* xbuild)
  * cd bin 
- * copy OpenSim.ini.example to OpenSim.ini and other appropriate files in bin/config-include
+ * copy OpenSim.ini.example to OpenSim.ini and other appropriate files in config/config-include
  * run mono OpenSim.exe
  !* xbuild option switches
  !*          clean:  xbuild /target:clean

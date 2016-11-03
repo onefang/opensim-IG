@@ -99,7 +99,7 @@ namespace OpenSim.Region.PhysicsModules.Meshing
 
                     IConfig mesh_config = source.Configs["Mesh"];
 
-                    decodedSculptMapPath = config.GetString("DecodedSculptMapPath", "j2kDecodeCache");
+                    decodedSculptMapPath = "../caches/" + config.GetString("DecodedSculptMapPath", "j2kDecodeCache");
                     cacheSculptMaps = config.GetBoolean("CacheSculptMaps", cacheSculptMaps);
                     if (mesh_config != null)
                     {

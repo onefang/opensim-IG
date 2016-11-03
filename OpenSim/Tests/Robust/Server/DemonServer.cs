@@ -48,8 +48,8 @@ namespace Robust.Tests
         [SetUp]
         public void StartDemon()
         {
-            if (File.Exists("Robust.Tests.log"))
-                File.Delete("Robust.Tests.log");
+            if (File.Exists("../logs/Robust.Tests.log"))
+                File.Delete("../logs/Robust.Tests.log");
 
             Console.WriteLine("**** Starting demon Robust server ****");
             m_demon = new Thread( () => Main(new string[] {"-inifile=Robust.Tests.ini"}));

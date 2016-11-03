@@ -44,7 +44,7 @@ namespace OpenSim.Region.ScriptEngine.Shared
             string dirName = myDomain.FriendlyName;
             string ScriptEnginesPath = myDomain.SetupInformation.PrivateBinPath;
 
-            string[] pathList = new string[] {"", "bin", ScriptEnginesPath,
+            string[] pathList = new string[] {"", "caches", ScriptEnginesPath,
                                               Path.Combine(ScriptEnginesPath, dirName)};
 
             string assemblyName = args.Name;

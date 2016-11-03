@@ -96,7 +96,7 @@ namespace OpenSim.Region.UserStatistics
 
             //IConfig startupConfig = config.Configs["Startup"];
 
-            dbConn = new SqliteConnection("URI=file:LocalUserStatistics.db,version=3");
+            dbConn = new SqliteConnection("URI=file:../db/LocalUserStatistics.db,version=3");
             dbConn.Open();
             CreateTables(dbConn);
 

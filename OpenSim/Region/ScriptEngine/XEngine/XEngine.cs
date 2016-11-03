@@ -309,7 +309,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             m_WaitForEventCompletionOnScriptStop 
                 = m_ScriptConfig.GetInt("WaitForEventCompletionOnScriptStop", m_WaitForEventCompletionOnScriptStop);
 
-            m_ScriptEnginesPath = m_ScriptConfig.GetString("ScriptEnginesPath", "ScriptEngines");
+            m_ScriptEnginesPath = "../caches/" + m_ScriptConfig.GetString("ScriptEnginesPath", "ScriptEngines");
 
             m_Prio = ThreadPriority.BelowNormal;
             switch (priority)
@@ -1817,7 +1817,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             if (!(sender is System.AppDomain))
                 return null;
 
-            string[] pathList = new string[] {"bin", m_ScriptEnginesPath,
+            string[] pathList = new string[] {"caches", m_ScriptEnginesPath,
                                               Path.Combine(m_ScriptEnginesPath,
                                                            m_Scene.RegionInfo.RegionID.ToString())};
 

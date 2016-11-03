@@ -80,7 +80,7 @@ namespace OpenSim.Services.MapImageService
                 IConfig serviceConfig = config.Configs["MapImageService"];
                 if (serviceConfig != null)
                 {
-                    m_TilesStoragePath = serviceConfig.GetString("TilesStoragePath", m_TilesStoragePath);
+                    m_TilesStoragePath = "../caches/" + serviceConfig.GetString("TilesStoragePath", m_TilesStoragePath);
                     if (!Directory.Exists(m_TilesStoragePath))
                         Directory.CreateDirectory(m_TilesStoragePath);
 

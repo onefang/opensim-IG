@@ -138,7 +138,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
         internal TaskInventoryItem m_item;
         internal bool m_OSFunctionsEnabled = false;
         internal ThreatLevel m_MaxThreatLevel = ThreatLevel.VeryLow;
-        internal float m_ScriptDelayFactor = 1.0f;
         internal float m_ScriptDistanceFactor = 1.0f;
         internal Dictionary<string, FunctionPerms > m_FunctionPerms = new Dictionary<string, FunctionPerms >();
 
@@ -159,8 +158,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                 // m_log.Warn("[OSSL] OSSL FUNCTIONS ENABLED");
             }
 
-            m_ScriptDelayFactor =
-                    m_ScriptEngine.Config.GetFloat("ScriptDelayFactor", 1.0f);
             m_ScriptDistanceFactor =
                     m_ScriptEngine.Config.GetFloat("ScriptDistanceLimitFactor", 1.0f);
 
@@ -425,14 +422,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
         internal void OSSLDeprecated(string function, string replacement)
         {
             OSSLShoutError(string.Format("Use of function {0} is deprecated. Use {1} instead.", function, replacement));
-        }
-
-        protected void ScriptSleep(int delay)
-        {
-            delay = (int)((float)delay * m_ScriptDelayFactor);
-            if (delay == 0)
-                return;
-            System.Threading.Thread.Sleep(delay);
         }
 
         public LSL_Integer osSetTerrainHeight(int x, int y, double val)
@@ -799,9 +788,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                                 presence.ControllingClient, regionName, position,
                                 lookat, (uint)TPFlags.ViaLocation), 
                             null, "OSSL_Api.TeleportAgentByRegionCoords");
-
-                        ScriptSleep(5000);
-
                     // }
 
                 }
@@ -847,9 +833,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                                 presence.ControllingClient, regionHandle, 
                                 position, lookat, (uint)TPFlags.ViaLocation), 
                             null, "OSSL_Api.TeleportAgentByRegionName");
-
-                        ScriptSleep(5000);
-
                    //  }
 
                 }
@@ -3137,8 +3120,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
             // If region was found, return the regions map texture key.
             if (region != null)
                 key = region.TerrainImage;
-
-            ScriptSleep(1000);
 
             return key.ToString();
         }

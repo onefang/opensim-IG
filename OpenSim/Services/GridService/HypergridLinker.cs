@@ -119,8 +119,7 @@ namespace OpenSim.Services.GridService
             if (scope != string.Empty)
                 UUID.TryParse(scope, out m_ScopeID);
 
-
-            m_MapTileDirectory = gridConfig.GetString("MapTileDirectory", "maptiles");
+            m_MapTileDirectory = "../caches/" + gridConfig.GetString("MapTileDirectory", "maptiles");
 
             m_ThisGatekeeper = Util.GetConfigVarFromSections<string>(config, "GatekeeperURI",
                 new string[] { "Startup", "Hypergrid", "GridService" }, String.Empty);
@@ -139,17 +138,14 @@ namespace OpenSim.Services.GridService
 
             m_log.Debug("[HYPERGRID LINKER]: Loaded all services...");
 
-            if (!string.IsNullOrEmpty(m_MapTileDirectory))
+            try
             {
-                try
-                {
-                    Directory.CreateDirectory(m_MapTileDirectory);
-                }
-                catch (Exception e)
-                {
-                    m_log.WarnFormat("[HYPERGRID LINKER]: Could not create map tile storage directory {0}: {1}", m_MapTileDirectory, e);
-                    m_MapTileDirectory = string.Empty;
-                }
+                Directory.CreateDirectory(m_MapTileDirectory);
+            }
+            catch (Exception e)
+            {
+                m_log.WarnFormat("[HYPERGRID LINKER]: Could not create map tile storage directory {0}: {1}", m_MapTileDirectory, e);
+                m_MapTileDirectory = string.Empty;
             }
 
             if (MainConsole.Instance != null)

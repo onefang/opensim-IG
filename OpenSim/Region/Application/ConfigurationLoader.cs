@@ -154,15 +154,14 @@ namespace OpenSim
             }
 
             // Override distro settings with contents of inidirectory
-            string iniDirName = startupConfig.GetString("inidirectory", "config");
-            string iniDirPath = Path.Combine(Util.configDir(), iniDirName);
+            string iniDirPath = Path.GetFullPath(Path.Combine(Util.configDir(), startupConfig.GetString("inidirectory", "config")));
 
             if (Directory.Exists(iniDirPath))
             {
                 m_log.InfoFormat("[CONFIG]: Searching folder {0} for config ini files", iniDirPath);
                 List<string> overrideSources = new List<string>();
 
-                string[] fileEntries = Directory.GetFiles(iniDirName);
+                string[] fileEntries = Directory.GetFiles(iniDirPath);
                 foreach (string filePath in fileEntries)
                 {
                     if (Path.GetExtension(filePath).ToLower() == ".ini")

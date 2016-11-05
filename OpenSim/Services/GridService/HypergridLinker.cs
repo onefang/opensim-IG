@@ -206,17 +206,17 @@ namespace OpenSim.Services.GridService
                 string host;
                 uint port = 80;
                 string regionName = "";
-                
+
                 string[] parts = mapName.Split(new char[] { ':' });
-                
+
                 if (parts.Length == 0)
                 {
                     reason = "Wrong format for link-region";
                     return null;
                 }
-                
+
                 host = parts[0];
-                
+
                 if (parts.Length >= 2)
                 {
                     // If it's a number then assume it's a port. Otherwise, it's a region name.

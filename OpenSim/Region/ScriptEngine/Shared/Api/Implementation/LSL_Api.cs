@@ -2278,8 +2278,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                     pos.x < -10.0 || // return FALSE if more than 10 meters into a west-adjacent region.
                     pos.x > (World.RegionInfo.RegionSizeX + 10) || // return FALSE if more than 10 meters into a east-adjacent region.
                     pos.y < -10.0 || // return FALSE if more than 10 meters into a south-adjacent region.
-                    pos.y > (World.RegionInfo.RegionSizeY + 10) || // return FALSE if more than 10 meters into a north-adjacent region.
-                    pos.z > Constants.RegionHeight // return FALSE if altitude than 4096m
+                    pos.y > (World.RegionInfo.RegionSizeY + 10) // return FALSE if more than 10 meters into a north-adjacent region.
                 )
             )
             {
@@ -3098,9 +3097,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                     return;
 
                 float dist = (float)llVecDist(llGetPos(), pos);
-
-                if (dist > m_ScriptDistanceFactor * 10.0f)
-                    return;
 
                 TaskInventoryItem item = m_host.Inventory.GetInventoryItem(inventory);
 

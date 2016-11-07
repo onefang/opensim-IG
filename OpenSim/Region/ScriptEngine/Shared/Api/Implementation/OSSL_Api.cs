@@ -138,7 +138,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
         internal TaskInventoryItem m_item;
         internal bool m_OSFunctionsEnabled = false;
         internal ThreatLevel m_MaxThreatLevel = ThreatLevel.VeryLow;
-        internal float m_ScriptDistanceFactor = 1.0f;
         internal Dictionary<string, FunctionPerms > m_FunctionPerms = new Dictionary<string, FunctionPerms >();
 
         protected IUrlModule m_UrlModule = null;
@@ -157,9 +156,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                 m_OSFunctionsEnabled = true;
                 // m_log.Warn("[OSSL] OSSL FUNCTIONS ENABLED");
             }
-
-            m_ScriptDistanceFactor =
-                    m_ScriptEngine.Config.GetFloat("ScriptDistanceLimitFactor", 1.0f);
 
             string risk = m_ScriptEngine.Config.GetString("OSFunctionThreatLevel", "VeryLow");
             switch (risk)

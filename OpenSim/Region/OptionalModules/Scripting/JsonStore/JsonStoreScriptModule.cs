@@ -728,8 +728,6 @@ namespace OpenSim.Region.OptionalModules.Scripting.JsonStore
 
             // hpos = host.RootPart.GetWorldPosition()
             // float dist = (float)llVecDist(hpos, pos);
-            // if (dist > m_ScriptDistanceFactor * 10.0f)
-            //     return;
 
             TaskInventoryItem item = host.RootPart.Inventory.GetInventoryItem(name);
             if (item == null)

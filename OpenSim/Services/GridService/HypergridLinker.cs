@@ -314,7 +314,7 @@ namespace OpenSim.Services.GridService
 
             if (remoteRegionName != string.Empty)
                 regInfo.RegionName = remoteRegionName;
-                
+
             regInfo.RegionLocX = xloc;
             regInfo.RegionLocY = yloc;
             regInfo.ScopeID = scopeID;
@@ -387,7 +387,7 @@ namespace OpenSim.Services.GridService
                 regInfo.RegionName = externalName;
 
             m_log.DebugFormat("[HYPERGRID LINKER]: naming linked region {0}, handle {1}", regInfo.RegionName, handle.ToString());
-                
+
             // Get the map image
             regInfo.TerrainImage = GetMapImage(regionID, imageURL);
 
@@ -497,7 +497,7 @@ namespace OpenSim.Services.GridService
             RunHGCommand(command, cmdparams);
 
         }
-        
+
         private void RunLinkRegionCommand(string[] cmdparams)
         {
             int xloc, yloc;

@@ -1676,7 +1676,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
             }
             return result;
         }
-        
+
         private ArrayList osdToArray(OSDArray list)
         {
             ArrayList result = new ArrayList();
@@ -1730,7 +1730,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
             m_host.AddScriptLPS(1);
 
             Object decoded = osParseJSONNew(JSON);
-            
+
             if ( decoded is Hashtable ) {
                 return (Hashtable) decoded;
             } else if ( decoded is ArrayList ) {
@@ -3084,7 +3084,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
             bool isMale = vpShapeMale > 0.5f;
             return new LSL_String(isMale ? "male" : "female");
         }
-        
+
         /// <summary>
         /// Get current region's map texture UUID
         /// </summary>
@@ -3123,7 +3123,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
 
             return key.ToString();
         }
-        
+
        /// <summary>
         /// Return information regarding various simulator statistics (sim fps, physics fps, time
         /// dilation, total number of prims, total number of active scripts, script lps, various
@@ -3137,7 +3137,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
             m_host.AddScriptLPS(1);
             LSL_List ret = new LSL_List();
             float[] stats = World.StatsReporter.LastReportedSimStats;
-            
+
             for (int i = 0; i < 21; i++)
             {
                 ret.Add(new LSL_Float(stats[i]));
@@ -3183,7 +3183,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
 
             return (int)pws;
         }
-        
+
         public void osSetSpeed(string UUID, LSL_Float SpeedModifier)
         {
             CheckThreatLevel(ThreatLevel.Moderate, "osSetSpeed");
@@ -3193,7 +3193,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
             if (avatar != null)
                 avatar.SpeedModifier = (float)SpeedModifier;
         }
-        
+
         public void osKickAvatar(string FirstName, string SurName, string alert)
         {
             CheckThreatLevel(ThreatLevel.Severe, "osKickAvatar");
@@ -3223,7 +3223,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
             if (presence != null) health = presence.Health;
             return health;
         }
-        
+
         public void osCauseDamage(string avatar, double damage)
         {
             CheckThreatLevel(ThreatLevel.High, "osCauseDamage");
@@ -3251,7 +3251,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                 }
             }
         }
-        
+
         public void osCauseHealing(string avatar, double healing)
         {
             CheckThreatLevel(ThreatLevel.High, "osCauseHealing");

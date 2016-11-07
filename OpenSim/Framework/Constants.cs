@@ -34,7 +34,7 @@ namespace OpenSim.Framework
         // DO NOT USE THIS FOR ANY NEW CODE. Use Scene.RegionInfo.RegionSize[XYZ] as a region might not
         //      be the legacy region size.
         public const uint RegionSize = 256;
-        public const uint RegionHeight = 4096;
+        public const uint RegionHeight = 16384;
         // This could be a parameters but, really, a region of greater than this is pretty unmanageable
         public const uint MaximumRegionSize = 8192;
 

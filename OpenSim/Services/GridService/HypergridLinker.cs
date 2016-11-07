@@ -119,7 +119,8 @@ namespace OpenSim.Services.GridService
             if (scope != string.Empty)
                 UUID.TryParse(scope, out m_ScopeID);
 
-            m_MapTileDirectory = "../caches/" + gridConfig.GetString("MapTileDirectory", "maptiles");
+// TODO OpenSim is crazy, this is called from Robust and OpenSim, Robust needs the ../caches bit, OpenSim somehow adds a path already.  I can't tell why.  So strip the path.
+            m_MapTileDirectory = "../caches/" +  Path.GetFileName(gridConfig.GetString("MapTileDirectory", "maptiles"));
 
             m_ThisGatekeeper = Util.GetConfigVarFromSections<string>(config, "GatekeeperURI",
                 new string[] { "Startup", "Hypergrid", "GridService" }, String.Empty);

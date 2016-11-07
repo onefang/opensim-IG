@@ -68,7 +68,7 @@ namespace OpenSim.ApplicationPlugins.LoadRegions
             }
 
             string[] configFiles = Directory.GetFiles(regionConfigPath, "*.xml");
-//// Causes hangs with the actual .ini files.
+//// Causes hangs with the actual .ini files if they are in the same place.
 ////            string[] iniFiles = Directory.GetFiles(regionConfigPath, "*.ini");
 
             // Create an empty Regions.ini if there are no existing config files.

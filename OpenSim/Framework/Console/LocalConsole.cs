@@ -97,7 +97,7 @@ namespace OpenSim.Framework.Console
 
             string m_historyFile = startupConfig.GetString("ConsoleHistoryFile", "OpenSimConsoleHistory.txt");
             int m_historySize = startupConfig.GetInt("ConsoleHistoryFileLines", 100);
-            m_historyPath = Path.GetFullPath(Path.Combine(Util.configDir(), m_historyFile));
+            m_historyPath = Path.GetFullPath(Path.Combine("../caches", m_historyFile));
             m_log.InfoFormat("[LOCAL CONSOLE]: Persistent command line history is Enabled, up to {0} lines from file {1}", m_historySize, m_historyPath);
 
             if (File.Exists(m_historyPath))

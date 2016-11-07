@@ -70,9 +70,9 @@ namespace OpenSim.Server.Handlers.BakedTextures
             m_FSBase = assetConfig.GetString("BaseDirectory", String.Empty);
             if (m_FSBase == String.Empty)
             {
-        	m_FSBase = "bakes";
+                m_FSBase = "bakes";
             }
-            m_FSBase = "../../caches/" + m_FSBase;
+            m_FSBase = "../caches/" + m_FSBase;
 
             m_log.Info("[BAKES]: XBakes service enabled");
         }

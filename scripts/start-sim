@@ -98,6 +98,8 @@ case $(basename $0) in
 	then
 	    if [ "x$tgt" = "xROBUST" ]; then
 		$SUDO cat ../config/config.ini ../config/Robust.ini.template >../config/Robust.ini
+		$SUDO chown -R opensim:opensim ../config/Robust.ini
+		$SUDO chmod 600 ../config/Robust.ini
 		${tmux_command} split-window -vp 30 -t "${tmux_session}:" "${cmd}"
 	    else
 		${tmux_command} new-window -dn "[${title}]" -t "${tmux_session}:${num}" "${cmd}"

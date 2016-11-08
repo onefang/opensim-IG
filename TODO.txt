@@ -1,0 +1,18 @@
+FIX BUGS -
+
+Zarro boogs!
+
+
+NEW FEATURES -
+
+In [Startup] there is this -
+    ; To run a script every few minutes, set the script filename here
+    ; timer_Script = "filename"
+Could do things with that perhaps.
+
+
+In [Startup] there is this -
+    ; Simulator Stats URI
+    ; Enable JSON simulator data by setting a URI name (case sensitive)
+    ; Stats_URI = "jsonSimStats"
+

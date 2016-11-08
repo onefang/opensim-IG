@@ -1,0 +1,11 @@
+<Nini>
+  <Section Name="My sim">
+    <Key Name="RegionUUID" Value="ffffffff-ffff-ffff-ffff-ffffffffffff" />
+    <Key Name="Location" Value="10000,10000" />
+    <Key Name="InternalAddress" Value="0.0.0.0" />
+    <Key Name="InternalPort" Value="9106" />
+    <Key Name="AllowAlternatePorts" Value="False" />
+    <Key Name="ExternalHostName" Value="SYSTEMIP" />
+    <Key Name="RegionType" Value="public sim" />
+  </Section>
+</Nini>

@@ -28,10 +28,13 @@ done < <(grep ConnectionString ${PRGDIR}/../config/config.ini | cut -d '"' -f 2)
 # Only backup those that have not logged on since their last backup, but returning prims from sims will bypass this check.
 timestamp=$(ls -o --time-style="+%s" ${PRGDIR}/../backups/.keep | cut -d ' ' -f 5)
 touch ${PRGDIR}/../backups/.keep
+# Well it was good in theory, but looks like they broke it in 8.2, no logging in or out updates to GridUser.
 
 # Get the user names, and back 'em up.
+#mysql --host="${creds[Data Source]}" "${creds[Database]}" --user="${creds[User ID]}" --password="${creds[Password]}" \
+#  -e "select FirstName,LastName from UserAccounts,GridUser where UserAccounts.PrincipalID=GridUser.UserID and GridUser.Logout>${timestamp};" -ss | while read user; do
 mysql --host="${creds[Data Source]}" "${creds[Database]}" --user="${creds[User ID]}" --password="${creds[Password]}" \
-  -e "select FirstName,LastName from UserAccounts,GridUser where UserAccounts.PrincipalID=GridUser.UserID and GridUser.Logout>${timestamp};" -ss | while read user; do
+  -e "select FirstName,LastName from UserAccounts;" -ss | while read user; do
   # Replace tab with space
   user=${user//	/ }
   ${PRGDIR}/backup-inventory "${user}"

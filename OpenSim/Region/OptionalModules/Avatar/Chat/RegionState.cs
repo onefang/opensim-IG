@@ -389,29 +389,36 @@ namespace OpenSim.Region.OptionalModules.Avatar.Chat
             }
 
             m_log.DebugFormat("[IRC-Region {0}] heard on channel {1} : {2}", Region, msg.Channel, msg.Message);
+            string txt = msg.Message;
 
-            if (null != avatar && cs.RelayChat && (msg.Channel == 0 || msg.Channel == DEBUG_CHANNEL))
+            if (null != avatar)
             {
-                string txt = msg.Message;
-                if (txt.StartsWith("/me "))
-                    txt = String.Format("{0} {1}", fromName, msg.Message.Substring(4));
-
-                cs.irc.PrivMsg(cs.PrivateMessageFormat, fromName, Region, txt);
-                return;
+                if ((!cs.RelayChat) || (msg.Channel != 0 && msg.Channel != DEBUG_CHANNEL))
+                    return;
             }
-
-            if (null == avatar && cs.RelayPrivateChannels && null != cs.AccessPassword &&
-                msg.Channel == cs.RelayChannelOut)
+            else
             {
-                Match m = cs.AccessPasswordRegex.Match(msg.Message);
-                if (null != m)
+                if (cs.RelayPrivateChannels && msg.Channel == cs.RelayChannelOut)
                 {
-                    m_log.DebugFormat("[IRC] relaying message from {0}: {1}", m.Groups["avatar"].ToString(),
-                                      m.Groups["message"].ToString());
-                    cs.irc.PrivMsg(cs.PrivateMessageFormat, m.Groups["avatar"].ToString(),
-                                   scene.RegionInfo.RegionName, m.Groups["message"].ToString());
+                    if (null != cs.AccessPassword)
+                    {
+                        Match m = cs.AccessPasswordRegex.Match(msg.Message);
+                        if (null != m)
+                        {
+                            if (m.Groups["avatar"].ToString() != "")
+                                fromName = m.Groups["avatar"].ToString();
+                            if (m.Groups["message"].ToString() != "")
+                                txt = m.Groups["message"].ToString();
+                        }
+                    }
                 }
+                fromName = "OBJECT: " + fromName;
             }
+
+            if (txt.StartsWith("/me "))
+                txt = String.Format("{0} {1}", fromName, msg.Message.Substring(4));
+            m_log.DebugFormat("[IRC] relaying message from {0}: {1}", fromName, txt);
+            cs.irc.PrivMsg(cs.PrivateMessageFormat, fromName, Region, txt);
         }
 
         // This method gives the region an opportunity to interfere with 

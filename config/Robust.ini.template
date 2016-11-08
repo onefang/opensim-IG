@@ -9,55 +9,7 @@
 ; * Additional OpenSim.Server.Handlers.dll:AssetServiceConnector and 
 ; *            OpenSim.Server.Handlers.dll:XInventoryInConnector 
 ; * are started in port 8002, outside the firewall
-; *
-; **
-; *
-; * The Const section allows us to define some basic information that we
-; * will use throughout our configuration. We will provide examples for 
-; * setting the base url of the Robust server and the public and private ports
-; * it uses. Changing the values of the constants will set the operating
-; * parameters thoughout the configuration. Other constants that may prove
-; * to be useful may be added to the followin section. They may be 
-; * referenced anywhere in the configuration by using ${Const|Name}. One
-; * such use is providing a base path for setting locations that Robust
-; * uses to write data.
-; *
 
-[Includes]
-    ; Define your server specific constants in this file.
-;    Include-Common = /opt/opensim/config/constants.ini
-
-
-[Const]
-    MOTD = "Welcome to virtual 'Gabba."
-
-    Base = "../.."
-    AssetsPath = "../../AssetFiles"
-    CachePath = "../../caches"
-    ConfigPath = "../../config"
-    IncludePath = "../../config-include"
-
-    GridName = "onefangWorld"
-
-    ; For a grid these will usually be the externally accessible IP/DNS
-    ; name and use default public port 8002 and default private port 8003
-    ; For a standalone this will usually be the externally accessible IP/DNS
-    ; name and use default public port 9000. The private port is not used
-    ; in the configuration for a standalone.
-
-    ;# {BaseURL} {} {BaseURL} {"http://example.com" "http://127.0.0.1"} "http://127.0.0.1"
-    HostName = "localhost"
-    BaseURL = http://127.0.0.1
-
-    ;# {PublicPort} {} {PublicPort} {8002 9000} "8002"
-    PublicPort = "8002"
-
-    ;# {PrivatePort} {} {PrivatePort} {8003} "8003"
-    PrivatePort = "8003"
-
-
-    DataProvider = "OpenSim.Data.MySQL.dll"
-    ConnectionString = "Data Source=localhost;Database=$MYSQL_DB;User ID=$MYSQL_USER;Password=$MYSQL_PASSWORD;Old Guids=true;"
 
 ; * The startup section lists all the connectors to start up in this server
 ; * instance. This may be only one, or it may be the entire server suite.

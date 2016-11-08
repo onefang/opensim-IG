@@ -1,0 +1,3 @@
+#!/bin/bash
+
+tmux -S /var/run/opensim/opensim-tmux.socket select-window -t "OpenSim_console" \; attach-session -t "OpenSim_console"

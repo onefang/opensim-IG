@@ -1,0 +1,152 @@
+#!/bin/bash
+
+# Figure out where we are, most of this mess is to troll through soft links.
+PRG="$0"
+while [ -h "${PRG}" ] ; do
+  ls=$(ls -ld "${PRG}")
+  link=`expr "${ls}" : '.*-> \(.*\)$'`
+  if expr "${link}" : '.*/.*' > /dev/null; then
+    PRG="${link}"
+  else
+    PRG=$(dirname "${PRG}")/"${link}"
+  fi
+done
+PRGDIR=$(dirname "${PRG}")
+pushd ${PRGDIR} >/dev/null
+PRGDIR=$(pwd)
+popd >/dev/null
+
+
+USER=$(whoami)
+console_name="OpenSim_console"
+tmux_command="tmux -S /var/run/opensim/opensim-tmux.socket"
+tmux_session=${console_name}
+tmux_window="${tmux_command} select-window -t ${tmux_session}"
+tmux_send="${tmux_command} send-keys -t ${tmux_session}"
+bindir="${PRGDIR}/../bin"
+date=$(date '+%F_%T')
+quiet=""
+inventory=""
+
+if [ $USER = "opensim" ]
+then
+    SUDO=""
+else
+    SUDO="sudo -Hu opensim"
+fi
+
+if [ "$1" = "-q" ]
+then
+    quiet="true"
+    shift 1
+fi
+   
+if [ "x$1" = "x" ]; then
+    tgt=$(basename $(pwd))
+    num=$(echo ${tgt} | cut -c 4-)
+elif [ -d "./$1" ]; then
+    tgt=$1
+elif [ -d "./sim$1" ]; then
+    num=$1
+    tgt="./sim${num}"
+else
+    tgt=$1
+    inventory=$1
+fi
+
+if [ "x$tgt" = "x" ]; then
+    echo "usage:"
+    echo "    $ $(basename $0) <sim>"
+    echo "where <sim> is one of: " robust sim[0-9][0-9]
+    exit 1
+fi
+
+cd ${bindir}
+
+if ( ${tmux_command} -q list-sessions 2>/dev/null | grep -q ${console_name}: ); then
+    true
+else
+    # The sudo is only so that the session is owned by opensim, otherwise it's owned by whoever ran this script, which is a likely security hole.
+    # After the session is created, we rely on the /var/run/opensim directory to be group sticky, so that anyone in the opensim group can attach to the tmux socket.
+    $SUDO ${tmux_command} new-session -d -s ${console_name} -n "Server"
+fi
+
+
+if [ "x$tgt" = "xROBUST" ]; then
+    exe="Robust"
+    title="ROBUST"
+elif [ "x$inventory" = "x" ]; then
+    exe="OpenSim"
+    # Grab the first Section line of the sims .xml file, cut it down to the name.
+    title=$(grep "<Section " ../config/${tgt}/*.xml | head -n 1 | cut -d '"' -f 2 )
+fi
+
+case $(basename $0) in 
+    "start-sim")
+	cmd="mono ${exe}.exe -inidirectory=${tgt} "
+
+	# Check if it's already running.
+	if [ -e /var/run/opensim/${tgt}.pid ]
+	then
+	    # Double check if it's REALLY running.
+	    if [ "x$(ps -p $(cat /var/run/opensim/${tgt}.pid) --no-headers -o comm)" = "x" ]; then
+		$SUDO rm -f /var/run/opensim/${tgt}.pid
+	    fi
+	fi
+	# Now see if it's really really running.  lol
+	if [ ! -e /var/run/opensim/${tgt}.pid ]
+	then
+	    if [ "x$tgt" = "xROBUST" ]; then
+		$SUDO cat ../config/config.ini ../config/Robust.ini.template >../config/Robust.ini
+		${tmux_command} split-window -vp 30 -t "${tmux_session}:" "${cmd}"
+	    else
+		${tmux_command} new-window -dn "[${title}]" -t "${tmux_session}:${num}" "${cmd}"
+	    fi
+	fi
+
+	if [ "x$quiet" = "x" ]
+	then
+	    if [ "x$tgt" = "xROBUST" ]; then
+		${tmux_window} \; attach-session -t "${tmux_session}"
+	    fi
+	fi
+	;;
+
+    "backup-inventory")
+	user=$($SUDO ${PRGDIR}/gitAR.sh i "${inventory}")
+	# Add the full date and time to create the IAR file name.
+	cmd="save iar -c ${inventory} / password ${PRGDIR}/../../backups/${user}-${date}.iar"
+	# Do it in the highest numbered window.
+	${tmux_send}:"$" "${cmd}" Enter
+	${tmux_send}:"$" "force gc" Enter
+	;;
+
+    "backup-sim")
+	sim=$($SUDO ${PRGDIR}/gitAR.sh o "${title}")
+	# Add the full date and time to create the OAR file name.
+	cmd="save oar --all ${PRGDIR}/../../backups/${sim}-${date}.oar"
+	if [ -e /var/run/opensim/${tgt}.pid ]; then
+	    ${tmux_send}:"[${title}]" "${cmd}" Enter
+	    # Wait a bit, then generate the map tiles, coz the good generator leaks memory badly if you leave it turned on.
+	    sleep 30
+	    ${tmux_send}:"[${title}]" "generate map" Enter
+	    ${tmux_send}:"[${title}]" "force gc" Enter
+	else
+	    echo "No OAR created for ${title}, it's not running."
+	fi
+	;;
+
+    "stop-sim")
+	if [ -e /var/run/opensim/${tgt}.pid ]; then
+	    ${tmux_send}:"[${title}]" "alert WARNING - Emergency shutdown in one minute!" Enter
+	    ${tmux_send}:"[${title}]" "alert WARNING - Emergency shutdown in one minute!" Enter
+	    sleep 30
+	    ${tmux_send}:"[${title}]" "alert WARNING - Emergency shutdown in thirty seconds!" Enter
+	    ${tmux_send}:"[${title}]" "alert WARNING - Emergency shutdown in thirty seconds!" Enter
+	    sleep 30
+	    ${tmux_send}:"[${title}]" "shutdown" Enter
+	else
+	    echo "Sim ${title} is not running, so not stopping."
+	fi
+	;;
+esac

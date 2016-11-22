@@ -444,12 +444,23 @@ namespace OpenSim.Region.CoreModules.World.Warp3DMap
                             IJ2KDecoder imgDecoder = m_scene.RequestModuleInterface<IJ2KDecoder>();
                             if (imgDecoder != null)
                             {
-                                Image sculpt = imgDecoder.DecodeToImage(sculptAsset);
-                                if (sculpt != null)
+                                try
                                 {
-                                    renderMesh = m_primMesher.GenerateFacetedSculptMesh(omvPrim, (Bitmap)sculpt,
+                                    Image sculpt = imgDecoder.DecodeToImage(sculptAsset);
+                                    if (sculpt != null)
+                                    {
+                                        renderMesh = m_primMesher.GenerateFacetedSculptMesh(omvPrim, (Bitmap)sculpt,
                                                                                         DetailLevel.Medium);
-                                    sculpt.Dispose();
+                                        sculpt.Dispose();
+                                    }
+                                }
+                                catch (Exception e)
+                                {
+                                    Vector3 objectPos = prim.ParentGroup.RootPart.AbsolutePosition;
+//// TODO - print out owner of SceneObjectPart prim.
+                                    m_log.Warn(string.Format("[WARP 3D IMAGE MODULE]: Failed to decode asset {0} @ {1},{2},{3} - {4}.",
+                                        omvPrim.Sculpt.SculptTexture, objectPos.X, objectPos.Y, objectPos.Z, 
+                                        prim.ParentGroup.RootPart.Name));
                                 }
                             }
                         }

@@ -1660,9 +1660,9 @@ namespace OpenSim.Region.Framework.Scenes
                         if (item != null)
                         {
                             part.ParentGroup.AddInventoryItem(remoteClient.AgentId, primLocalID, item, copyID);
-                            m_log.InfoFormat(
-                                "[PRIM INVENTORY]: Update with item {0} requested of prim {1} for {2}",
-                                item.Name, primLocalID, remoteClient.Name);
+////                            m_log.InfoFormat(
+////                                "[PRIM INVENTORY]: Update with item {0} requested of prim {1} for {2}",
+////                                item.Name, primLocalID, remoteClient.Name);
                             part.SendPropertiesToClient(remoteClient);
                             if (!Permissions.BypassPermissions())
                             {

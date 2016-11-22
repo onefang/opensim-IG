@@ -565,6 +565,9 @@ namespace OpenSim.Region.CoreModules.Asset
         /// <param name="purgeLine"></param>
         private void CleanExpiredFiles(string dir, DateTime purgeLine)
         {
+            // Yet another "directory we are trying to remove doesn't exist, so don't complain" idiocy fix.
+            if (!Directory.Exists(dir))
+                return;
             try
             {
                 foreach (string file in Directory.GetFiles(dir))
@@ -596,8 +599,7 @@ namespace OpenSim.Region.CoreModules.Asset
             }
             catch (Exception e)
             {
-                m_log.Warn(
-                    string.Format("[FLOTSAM ASSET CACHE]: Could not complete clean of expired files in {0}, exception  ", dir), e);
+                m_log.Warn(string.Format("[FLOTSAM ASSET CACHE]: Could not complete clean of expired files in {0}", dir), e);
             }
         }
 

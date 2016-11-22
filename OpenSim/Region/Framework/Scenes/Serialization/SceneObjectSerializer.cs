@@ -70,8 +70,9 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
                     }
                     catch (Exception e)
                     {
-                        m_log.Error("[SERIALIZER]: Deserialization of xml failed ", e);
-                        Util.LogFailedXML("[SERIALIZER]:", fixedData);
+                        m_log.Error("[SERIALIZER]: Deserialization of xml failed ");
+////                        m_log.Error("[SERIALIZER]: Deserialization of xml failed ", e);
+////                        Util.LogFailedXML("[SERIALIZER]:", fixedData);
                         return null;
                     }
                 }
@@ -283,8 +284,9 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
             }
             catch (Exception e)
             {
-                m_log.Error("[SERIALIZER]: Deserialization of xml failed ", e);
-                Util.LogFailedXML("[SERIALIZER]:", xmlData);
+                m_log.Error("[SERIALIZER]: Deserialization of xml failed ");
+////                m_log.Error("[SERIALIZER]: Deserialization of xml failed ", e);
+////                Util.LogFailedXML("[SERIALIZER]:", xmlData);
                 return null;
             }
         }

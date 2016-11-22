@@ -490,18 +490,23 @@ namespace OpenSim.Region.Framework.Scenes
         {
             string xml = Utils.BytesToString(sceneObjectAsset.Data);
 
-            CoalescedSceneObjects coa;
-            if (CoalescedSceneObjectsSerializer.TryFromXml(xml, out coa))
-            {
-                foreach (SceneObjectGroup sog in coa.Objects)
-                    AddForInspection(sog);
-            }
+            if (String.IsNullOrEmpty(xml))
+                m_log.ErrorFormat("[UUIDGatherer]: Asset {0} - {1} has a zero length XML blob!", sceneObjectAsset.Name, sceneObjectAsset.ID);
             else
             {
-                SceneObjectGroup sog = SceneObjectSerializer.FromOriginalXmlFormat(xml);
+                CoalescedSceneObjects coa;
+                if (CoalescedSceneObjectsSerializer.TryFromXml(xml, out coa))
+                {
+                    foreach (SceneObjectGroup sog in coa.Objects)
+                        AddForInspection(sog);
+                }
+                else
+                {
+                    SceneObjectGroup sog = SceneObjectSerializer.FromOriginalXmlFormat(xml);
 
-                if (null != sog)
-                    AddForInspection(sog);
+                    if (null != sog)
+                        AddForInspection(sog);
+                }
             }
         }
 

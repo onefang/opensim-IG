@@ -107,7 +107,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
                         part.LinkNum = linkNum;
                         part.TrimPermissions();
                     }
-                }                    
+                }
                 while (reader.ReadToNextSibling("Part"));
             }
 
@@ -156,7 +156,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
         {
             ToOriginalXmlFormat(sceneObject, writer, doScriptStates, false);
         }
-        
+
         public static string ToOriginalXmlFormat(SceneObjectGroup sceneObject, string scriptedState)
         {
             using (StringWriter sw = new StringWriter())
@@ -190,7 +190,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
 
             if (!noRootElement)
                 writer.WriteStartElement(String.Empty, "SceneObjectGroup", String.Empty);
-            
+
             writer.WriteStartElement(String.Empty, "RootPart", String.Empty);
             ToXmlFormat(sceneObject.RootPart, writer);
             writer.WriteEndElement();
@@ -212,23 +212,23 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
 
             if (doScriptStates)
                 sceneObject.SaveScriptedState(writer);
-            
+
             if (!noRootElement)
                 writer.WriteEndElement(); // SceneObjectGroup
 
 //            m_log.DebugFormat("[SERIALIZER]: Finished serialization of SOG {0}, {1}ms", sceneObject.Name, System.Environment.TickCount - time);
-        }        
+        }
 
         protected static void ToXmlFormat(SceneObjectPart part, XmlTextWriter writer)
         {
             SOPToXml2(writer, part, new Dictionary<string, object>());
         }
-        
+
         public static SceneObjectGroup FromXml2Format(string xmlData)
         {
             //m_log.DebugFormat("[SOG]: Starting deserialization of SOG");
             //int time = System.Environment.TickCount;
-            
+
             try
             {
                 XmlDocument doc = new XmlDocument();
@@ -278,7 +278,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
                 // Script state may, or may not, exist. Not having any, is NOT
                 // ever a problem.
                 sceneObject.LoadScriptState(doc);
-                
+
                 return sceneObject;
             }
             catch (Exception e)
@@ -307,14 +307,14 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
             }
         }
 
-        
+
         /// <summary>
         /// Modifies a SceneObjectGroup.
         /// </summary>
         /// <param name="sog">The object</param>
         /// <returns>Whether the object was actually modified</returns>
         public delegate bool SceneObjectModifier(SceneObjectGroup sog);
-        
+
         /// <summary>
         /// Modifies an object by deserializing it; applying 'modifier' to each SceneObjectGroup; and reserializing.
         /// </summary>
@@ -328,7 +328,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
             CoalescedSceneObjects coa = null;
 
             string xmlData = ExternalRepresentationUtils.SanitizeXml(Utils.BytesToString(data));
-            
+
             if (CoalescedSceneObjectsSerializer.TryFromXml(xmlData, out coa))
             {
                 // m_log.DebugFormat("[SERIALIZER]: Loaded coalescence {0} has {1} objects", assetId, coa.Count);
@@ -483,7 +483,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
             m_TaskInventoryXmlProcessors.Add("PermsMask", ProcessTIPermsMask);
             m_TaskInventoryXmlProcessors.Add("Type", ProcessTIType);
             m_TaskInventoryXmlProcessors.Add("OwnerChanged", ProcessTIOwnerChanged);
-            
+
             #endregion
 
             #region ShapeXmlProcessors initialization
@@ -1139,7 +1139,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
         {
             shp.HollowShape = Util.ReadEnum<HollowShape>(reader, "HollowShape");
         }
-        
+
         private static void ProcessShpSculptTexture(PrimitiveBaseShape shp, XmlReader reader)
         {
             shp.SculptTexture = Util.ReadUUID(reader, "SculptTexture");
@@ -1372,7 +1372,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
             if (sop.MediaUrl != null)
                 writer.WriteElementString("MediaUrl", sop.MediaUrl.ToString());
             WriteVector(writer, "AttachedPos", sop.AttachedPos);
-            
+
             if (sop.DynAttrs.CountNamespaces > 0)
             {
                 writer.WriteStartElement("DynAttrs");

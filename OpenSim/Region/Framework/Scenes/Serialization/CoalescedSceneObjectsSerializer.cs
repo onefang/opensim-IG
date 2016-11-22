@@ -68,54 +68,54 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
         /// </param>
         /// <returns></returns>
         public static string ToXml(CoalescedSceneObjects coa, bool doScriptStates)
-        {            
+        {
             using (StringWriter sw = new StringWriter())
             {
                 using (XmlTextWriter writer = new XmlTextWriter(sw))
-                {                                        
+                {
                     Vector3 size;
-                    
+
                     List<SceneObjectGroup> coaObjects = coa.Objects;
-                    
+
 //                    m_log.DebugFormat(
 //                        "[COALESCED SCENE OBJECTS SERIALIZER]: Writing {0} objects for coalesced object", 
 //                        coaObjects.Count);
-                    
+
                     // This is weak - we're relying on the set of coalesced objects still being identical
                     Vector3[] offsets = coa.GetSizeAndOffsets(out size);
 
                     writer.WriteStartElement("CoalescedObject");
-                    
+
                     writer.WriteAttributeString("x", size.X.ToString());
                     writer.WriteAttributeString("y", size.Y.ToString());
-                    writer.WriteAttributeString("z", size.Z.ToString());                    
-                    
+                    writer.WriteAttributeString("z", size.Z.ToString());
+
                     // Embed the offsets into the group XML
                     for (int i = 0; i < coaObjects.Count; i++)
                     {
                         SceneObjectGroup obj = coaObjects[i];
-                        
+
 //                        m_log.DebugFormat(
 //                            "[COALESCED SCENE OBJECTS SERIALIZER]: Writing offset for object {0}, {1}", 
-//                            i, obj.Name);                        
-                        
+//                            i, obj.Name);
+
                         writer.WriteStartElement("SceneObjectGroup");
                         writer.WriteAttributeString("offsetx", offsets[i].X.ToString());
                         writer.WriteAttributeString("offsety", offsets[i].Y.ToString());
                         writer.WriteAttributeString("offsetz", offsets[i].Z.ToString());
-                        
+
                         SceneObjectSerializer.ToOriginalXmlFormat(obj, writer, doScriptStates);
-                        
+
                         writer.WriteEndElement(); // SceneObjectGroup
-                    }  
-                    
+                    }
+
                     writer.WriteEndElement(); // CoalescedObject
                 }
 
                 string output = sw.ToString();
-                
+
 //                Console.WriteLine(output);
-                
+
                 return output;
             }
         }
@@ -123,14 +123,14 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
         public static bool TryFromXml(string xml, out CoalescedSceneObjects coa)
         {
 //            m_log.DebugFormat("[COALESCED SCENE OBJECTS SERIALIZER]: TryFromXml() deserializing {0}", xml);
-            
+
             coa = null;
-            
+
             try
             {
                 // Quickly check if this is a coalesced object, without fully parsing the XML
                 using (StringReader sr = new StringReader(xml))
-                {                
+                {
                     using (XmlTextReader reader = new XmlTextReader(sr))
                     {
                         reader.MoveToContent(); // skip possible xml declaration
@@ -140,7 +140,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
     //                        m_log.DebugFormat(
     //                            "[COALESCED SCENE OBJECTS SERIALIZER]: TryFromXml() root element was {0} so returning false", 
     //                            reader.Name);
-                            
+
                             return false;
                         }
                     }
@@ -151,12 +151,12 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
                 XmlElement e = (XmlElement)doc.SelectSingleNode("/CoalescedObject");
                 if (e == null)
                     return false;
-                        
+
                 coa = new CoalescedSceneObjects(UUID.Zero);
 
                 XmlNodeList groups = e.SelectNodes("SceneObjectGroup");
                 int i = 0;
-                
+
                 foreach (XmlNode n in groups)
                 {
                     SceneObjectGroup so = SceneObjectSerializer.FromOriginalXmlFormat(n.OuterXml);
@@ -181,8 +181,8 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
                 m_log.Error("[COALESCED SCENE OBJECTS SERIALIZER]: Deserialization of xml failed ",  e);
                 Util.LogFailedXML("[COALESCED SCENE OBJECTS SERIALIZER]:", xml);
                 return false;
-            }                        
-            
+            }
+
             return true;
         }
     }

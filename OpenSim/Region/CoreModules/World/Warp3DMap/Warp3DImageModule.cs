@@ -651,7 +651,7 @@ namespace OpenSim.Region.CoreModules.World.Warp3DMap
                 catch (Exception e)
                 {
                     m_log.Warn(string.Format("[WARP 3D IMAGE MODULE]: Failed to decode asset {0}, exception  ", id), e);
-                }                    
+                }
             }
 
             return ret;

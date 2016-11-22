@@ -510,7 +510,7 @@ namespace OpenSim.Region.Framework.Scenes
         /// </summary>
         /// <param name="gestureAsset"></param>
         private void RecordGestureAssetUuids(AssetBase gestureAsset)
-        {           
+        {
             using (MemoryStream ms = new MemoryStream(gestureAsset.Data))
                 using (StreamReader sr = new StreamReader(ms))
             {

@@ -114,7 +114,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
 
     public interface IOSSL_Api
     {
-        void CheckThreatLevel(ThreatLevel level, string function);
+        bool CheckThreatLevel(ThreatLevel level, string function);
 
         //OpenSim functions
         string osSetDynamicTextureURL(string dynamicID, string contentType, string url, string extraParams, int timer);

@@ -11660,7 +11660,11 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api
                         break;
                     case ScriptBaseClass.DATA_SIM_RELEASE:
                         if (ossl != null)
-                            ossl.CheckThreatLevel(ThreatLevel.High, "llRequestSimulatorData");
+                        {
+//// TODO - double check this.
+                            if (!ossl.CheckThreatLevel(ThreatLevel.High, "llRequestSimulatorData"))
+                                return UUID.Zero.ToString(); // Raise no event
+                        }
                         reply = "OpenSim";
                         break;
                     default:

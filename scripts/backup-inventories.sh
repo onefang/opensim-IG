@@ -24,9 +24,10 @@ mysql --host="${creds[Data Source]}" "${creds[Database]}" --user="${creds[User I
   -e "select FirstName,LastName from UserAccounts;" -ss | while read user; do
   # Replace tab with space
   user=${user//	/ }
+  # Find out the size of the last backup, base our later sleep on that, but do it now before backup-inventory packs it away.
+  sizeSleep=`sleepPerSize i "${user}"`
   ${PRGDIR}/backup-inventory "${user}"
   # Sleep for a while, so that there is plenty of time to do the backup,
   # and we are not keeping the computer very busy if there are lots of users.
-  # My big arsed 1 GB OAR takes about ten minutes to create, and maybe an hour to gitIOR!
-  sleep 200
+  sleep ${sizeSleep}
 done

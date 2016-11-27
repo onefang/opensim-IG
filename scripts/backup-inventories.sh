@@ -18,10 +18,8 @@ touch ${PRGDIR}/../../backups/.keep
 # Well it was good in theory, but looks like they broke it in 8.2, no logging in or out updates to GridUser.
 
 # Get the user names, and back 'em up.
-#mysql --host="${creds[Data Source]}" "${creds[Database]}" --user="${creds[User ID]}" --password="${creds[Password]}" \
-#  -e "select FirstName,LastName from UserAccounts,GridUser where UserAccounts.PrincipalID=GridUser.UserID and GridUser.Logout>${timestamp};" -ss | while read user; do
 mysql --host="${creds[Data Source]}" "${creds[Database]}" --user="${creds[User ID]}" --password="${creds[Password]}" \
-  -e "select FirstName,LastName from UserAccounts;" -ss | while read user; do
+  -e "select FirstName,LastName from UserAccounts,GridUser where UserAccounts.PrincipalID=LEFT(GridUser.UserID,36) and GridUser.Login>${timestamp};" -ss | while read user; do
   # Replace tab with space
   user=${user//	/ }
   # Find out the size of the last backup, base our later sleep on that, but do it now before backup-inventory packs it away.

@@ -29,7 +29,7 @@ fi
    
 if [ "x$1" = "x" ]; then
     tgt=$(basename $(pwd))
-    num=$(echo ${tgt} | cut -c 4-)
+    num="$(echo ${tgt} | cut -c 4-)"
 elif [ -d "./$1" ]; then
     tgt=$1
 elif [ -d "./sim$1" ]; then
@@ -83,10 +83,11 @@ case $(basename $0) in
 	if [ ! -e /var/run/opensim/${tgt}.pid ]
 	then
 	    if [ "x$tgt" = "xROBUST" ]; then
+# TODO - the problem here is that the > bit is executed as onefang, not as opensim.
 		$SUDO cat ../config/config.ini ../config/Robust.ini.template >../config/Robust.ini
-		$SUDO chown -R opensim:opensim ../config/Robust.ini
-		$SUDO chmod 600 ../config/Robust.ini
-		${tmux_command} split-window -vp 30 -t "${tmux_session}:" "${cmd}"
+#		$SUDO chown -R opensim:opensim ../config/Robust.ini
+		chmod 640 ../config/Robust.ini
+		${tmux_command} split-window -hp 50 -t "${tmux_session}:" "${cmd}"
 	    else
 		${tmux_command} new-window -dn "[${title}]" -t "${tmux_session}:${num}" "${cmd}"
 	    fi

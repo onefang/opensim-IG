@@ -101,7 +101,8 @@ case $(basename $0) in
 	;;
 
     "backup-inventory")
-	user=$($SUDO ${PRGDIR}/gitAR.sh i "${inventory}")
+	$SUDO ${PRGDIR}/gitAR.sh i "${inventory}"
+	user=$(sanitize "${inventory}")
 	# Add the full date and time to create the IAR file name.
 	cmd="save iar -c ${inventory} / password ${PRGDIR}/../../backups/${user}-${date}.iar"
 	# Do it in the highest numbered window.
@@ -110,13 +111,13 @@ case $(basename $0) in
 	;;
 
     "backup-sim")
-	sim=$($SUDO ${PRGDIR}/gitAR.sh o "${title}")
+	$SUDO ${PRGDIR}/gitAR.sh o "${title}"
+	sim=$(sanitize "${title}")
 	# Add the full date and time to create the OAR file name.
 	cmd="save oar --all ${PRGDIR}/../../backups/${sim}-${date}.oar"
 	if [ -e /var/run/opensim/${tgt}.pid ]; then
 	    ${tmux_send}:"[${title}]" "${cmd}" Enter
-	    # Wait a bit, then generate the map tiles, coz the good generator leaks memory badly if you leave it turned on.
-	    sleep 30
+	    # Generate the map tiles, coz the good generator leaks memory badly if you leave it turned on.
 	    ${tmux_send}:"[${title}]" "generate map" Enter
 	    ${tmux_send}:"[${title}]" "force gc" Enter
 	else

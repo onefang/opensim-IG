@@ -51,18 +51,25 @@ cat >.gitattributes <<- zzzzEOFzzzz
 *.r32 -delta -diff -text
 *.tga -delta -diff -text
 zzzzEOFzzzz
-git add .gitattributes &>>../log
 # Coz git insists.
 git config user.email "opensim@$(hostname -A | cut -d ' ' -f 1)"
 git config user.name  "opensim"
 
+# Git is such a pedantic bitch, let's just fucking ignore any errors it gives due to lack of anything to do.
+# Even worse the OpenSim devs breaking logout tracking gives git plenty of nothing to do.  lol
+
 # Looping through them in case there's a bunch of I/OARs from previous versions of this script.
-find ../.. -maxdepth 1 -type f -name ${name}-*.${type}ar | sort | while read file;  do
+# Ignore files of zero size that OpenSim might create.
+find ../.. -maxdepth 1 -type f -name "${name}-*.${type}ar" -size '+0c' | sort | while read file;  do
   # Deal with deletions in the inventory / sim, easy method, which becomes a nop for files that stay in the git add below.
-  git rm -fr * &>>../log && \
-  nice -n 19 tar -xzf "${file}" || echo "ERROR - Could not unpack ${file} !" >>../errors
+  git rm -fr * &>>../log 		#|| echo "ERROR - Could not clean git for  ${file} !" >>../errors
   if [ ! -f ../errors ]; then
-    git add * &>>../log && git add */\* &>>../log
+    nice -n 19 tar -xzf "${file}" || echo "ERROR - Could not unpack ${file} !" >>../errors
+  fi
+  if [ ! -f ../errors ]; then
+    git add * &>>../log
+    git add */\* &>>../log 		#|| echo "ERROR - Could not add ${file} to git!" >>../errors
+    git add .gitattributes &>>../log
     # Magic needed to figure out if there's anything to commit.
     # After all the pain to get this to work, there's an ever changing timestamp in archive.xml that screws it up.
     # Like this system didn't have enough timestamps in it already.  lol
@@ -99,5 +106,3 @@ if [ -f ${PRGDIR}/../../backups/temp_backup${type}_${name}/errors ]; then
 else
   rm -fr ${PRGDIR}/../../backups/temp_backup${type}_${name}
 fi
-
-echo -n ${name}

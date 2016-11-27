@@ -11,31 +11,16 @@
 
 # Not really meant to be called by users, so don't bother validating the input and such.
 
+source common.sh
+getPrgDir
+
 type=$1
 title=$2
-
-# Figure out where we are, most of this mess is to troll through soft links.
-PRG="$0"
-while [ -h "${PRG}" ] ; do
-  ls=$(ls -ld "${PRG}")
-  link=`expr "${ls}" : '.*-> \(.*\)$'`
-  if expr "${link}" : '.*/.*' > /dev/null; then
-    PRG="${link}"
-  else
-    PRG=$(dirname "${PRG}")/"${link}"
-  fi
-done
-PRGDIR=$(dirname "${PRG}")
-pushd ${PRGDIR} >/dev/null
-PRGDIR=$(pwd)
-popd >/dev/null
-
 date=$(date '+%F_%T')
 
-# Sanitize the name.  Not removing [ or ], couldn't get that to work, only important for Windows.
-name=$(echo "${title}" | sed -e 's/[\\/:\*\?"<>\|@#$%&\0\x01-\x1F\x27\x40\x60\x7F. ]/_/g' -e 's/^$/NONAME/')
 # Convert the type to uppercase.
 gar="_git$(echo -n ${type} | tr '[:lower:]' '[:upper:]')AR"
+name=$(sanitize "${title}")
 
 if [ -d ${PRGDIR}/../../backups/temp_backup${type}_${name} ]; then
   echo "WARNING - Mess left over from last backup, not gonna run!"

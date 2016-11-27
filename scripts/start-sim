@@ -1,21 +1,7 @@
 #!/bin/bash
 
-# Figure out where we are, most of this mess is to troll through soft links.
-PRG="$0"
-while [ -h "${PRG}" ] ; do
-  ls=$(ls -ld "${PRG}")
-  link=`expr "${ls}" : '.*-> \(.*\)$'`
-  if expr "${link}" : '.*/.*' > /dev/null; then
-    PRG="${link}"
-  else
-    PRG=$(dirname "${PRG}")/"${link}"
-  fi
-done
-PRGDIR=$(dirname "${PRG}")
-pushd ${PRGDIR} >/dev/null
-PRGDIR=$(pwd)
-popd >/dev/null
-
+source common.sh
+getPrgDir
 
 USER=$(whoami)
 console_name="OpenSim_console"
@@ -78,7 +64,7 @@ if [ "x$tgt" = "xROBUST" ]; then
 elif [ "x$inventory" = "x" ]; then
     exe="OpenSim"
     # Grab the first Section line of the sims .xml file, cut it down to the name.
-    title=$(grep "<Section " ../config/${tgt}/*.xml | head -n 1 | cut -d '"' -f 2 )
+    title=$(getSimName ${num})
 fi
 
 case $(basename $0) in 

@@ -1,20 +1,7 @@
 #!/bin/bash
 
-# Figure out where we are, most of this mess is to troll through soft links.
-PRG="$0"
-while [ -h "${PRG}" ] ; do
-  ls=$(ls -ld "${PRG}")
-  link=`expr "${ls}" : '.*-> \(.*\)$'`
-  if expr "${link}" : '.*/.*' > /dev/null; then
-    PRG="${link}"
-  else
-    PRG=$(dirname "${PRG}")/"${link}"
-  fi
-done
-PRGDIR=$(dirname "${PRG}")
-pushd ${PRGDIR} >/dev/null
-PRGDIR=$(pwd)
-popd >/dev/null
+source common.sh
+getPrgDir
 
 # Get the database credentials.
 declare -A creds

@@ -13,8 +13,8 @@ done < <(grep ConnectionString ${PRGDIR}/../config/config.ini | cut -d '"' -f 2)
 # The above seems the best way to get bash to let the creds assignments survive outside the loop.
 
 # Only backup those that have not logged on since their last backup, but returning prims from sims will bypass this check.
-timestamp=$(ls -o --time-style="+%s" ${PRGDIR}/../backups/.keep | cut -d ' ' -f 5)
-touch ${PRGDIR}/../backups/.keep
+timestamp=$(ls -o --time-style="+%s" ${PRGDIR}/../../backups/.keep | cut -d ' ' -f 5)
+touch ${PRGDIR}/../../backups/.keep
 # Well it was good in theory, but looks like they broke it in 8.2, no logging in or out updates to GridUser.
 
 # Get the user names, and back 'em up.

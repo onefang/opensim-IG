@@ -6,6 +6,8 @@
     <Key Name="InternalPort" Value="9106" />
     <Key Name="AllowAlternatePorts" Value="False" />
     <Key Name="ExternalHostName" Value="SYSTEMIP" />
-    <Key Name="RegionType" Value="public sim" />
+    <Key Name="RegionType" Value="private sim" />
+    <Key Name="SizeX" Value="256" />
+    <Key Name="SizeY" Value="256" />
   </Section>
 </Nini>

@@ -1,8 +1,8 @@
 Use this to create a sim that links into Infinite Grid from Linux.
 
-It's only been tested on Ubuntu 10.04, 11.04, and 12.04, YMMV.  This is
-also a WIP, use it at your own risk.  It's been used to set up two
-freshly installed Ubuntu servers though.
+It's only been tested on Ubuntu 10.04, 11.04, 12.04, and 16.04, YMMV. 
+This is also a WIP, use it at your own risk.  It's been used to set up
+a few freshly installed Ubuntu servers though.
 
 Follow these steps.
 -------------------
@@ -22,7 +22,7 @@ Next you need to figure out what password you want to use for OpenSims
 access to the database.  We will call this "DatabasePassword".  Run the
 following script -
 
-./install_opensim.sh DatabasePassword
+./InstallItAll.sh DatabasePassword
 
 This will do most of the work for you, except for creating sims.  There
 is a final step that needs to be done manually for now.  Edit
@@ -75,7 +75,6 @@ You can backup the sim with -
 
 ./backup-sim
 
-Though they all get backed up every six hours anyway.
 
 
 Finishing up.

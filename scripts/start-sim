@@ -102,6 +102,7 @@ case $(basename $0) in
 	;;
 
     "backup-inventory")
+	cd ${PRGDIR}
 	$SUDO ${PRGDIR}/gitAR.sh i "${inventory}"
 	user=$(sanitize "${inventory}")
 	# Add the full date and time to create the IAR file name.
@@ -112,6 +113,7 @@ case $(basename $0) in
 	;;
 
     "backup-sim")
+	cd ${PRGDIR}
 	$SUDO ${PRGDIR}/gitAR.sh o "${title}"
 	sim=$(sanitize "${title}")
 	# Add the full date and time to create the OAR file name.

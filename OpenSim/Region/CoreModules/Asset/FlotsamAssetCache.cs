@@ -599,7 +599,8 @@ namespace OpenSim.Region.CoreModules.Asset
             }
             catch (Exception e)
             {
-                m_log.Warn(string.Format("[FLOTSAM ASSET CACHE]: Could not complete clean of expired files in {0}", dir), e);
+//// TODO - I'm almost sure this is another case of failing to delete something that doesn't actually exist.
+////                m_log.Warn(string.Format("[FLOTSAM ASSET CACHE]: Could not complete clean of expired files in {0}", dir));
             }
         }
 

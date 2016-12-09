@@ -1,3 +1,11 @@
+/config/sim_skeleton/stop-sim
+/config/sim_skeleton/start-sim
+/config/sim_skeleton/common.sh
+/config/sim_skeleton/backup-sim
+/config/ROBUST/stop-sim
+/config/ROBUST/start-sim
+/config/ROBUST/common.sh
+/config/Robust.ini
 .project
 .settings
 *.csproj

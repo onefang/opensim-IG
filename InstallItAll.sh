@@ -88,9 +88,11 @@ sudo chmod a+x $OSPATH/current/scripts/start-sim
 
 for dir in AssetFiles backups caches config db logs
 do
-    sudo cp -fr $dir ..
-    sudo rm -fr $dir
-    sudo ln -fs ../$dir $dir
+    if [ ! -f ../$dir ]; then
+	sudo cp -fr $dir ..
+	sudo rm -fr $dir
+	sudo ln -fs ../$dir $dir
+    fi
 done
 
 sudo chmod ug+rwx  $OSPATH/config

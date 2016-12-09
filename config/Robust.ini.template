@@ -293,10 +293,9 @@
     ;; Example specification:
     ; Region_Welcome_Area = "DefaultRegion, FallbackRegion"
     ; (replace spaces with underscore)
-    Region_residential            = "DefaultRegion, FallbackRegion, Persistent"
-    Region_Gabba_Ward             = "DefaultRegion, FallbackRegion, Persistent"
-    Region_Mater_Hospital         = "DefaultRegion, FallbackRegion, Persistent"
-    Region_Mater_Private_Hospital = "DefaultRegion, FallbackRegion, Persistent"
+    Region_Welcome            = "DefaultRegion, FallbackRegion, Persistent"
+    Region_Sandbox            = "DefaultRegion, FallbackRegion, Persistent"
+    Region_Kellietown         = "DefaultRegion, FallbackRegion, Persistent"
 
     ;; Allow Hyperlinks to be created at the console
     HypergridLinker = true

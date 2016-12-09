@@ -1,0 +1,13 @@
+<Nini>
+  <Section Name="SIM_NAME">
+    <Key Name="RegionUUID" Value="SIM_UUID" />
+    <Key Name="Location" Value="SIM_POS" />
+    <Key Name="InternalAddress" Value="SIM_IP" />
+    <Key Name="InternalPort" Value="SIM_INT_PORT" />
+    <Key Name="AllowAlternatePorts" Value="False" />
+    <Key Name="ExternalHostName" Value="SIM_URL" />
+    <Key Name="RegionType" Value="private sim" />
+    <Key Name="SizeX" Value="SIM_SIZE" />
+    <Key Name="SizeY" Value="SIM_SIZE" />
+  </Section>
+</Nini>

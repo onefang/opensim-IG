@@ -1,21 +1,23 @@
 #!/bin/bash
 
+source common.sh
+getPrgDir
+
 NAME=$1
 LOCATION=$2
 URL=$3
 IP=$4
 SIZE=$5
 
-
 OSPATH="/opt/opensim"
 cd $OSPATH/config
 
 k=0
-for i in $(seq 50 99)
+for i in $(seq -w 1 99)
 do
-    j=$(printf "sim%02d" $i)
+    j=$(num2name "$i")
     if [ -e "$j" ]
-    then 
+    then
 	k=$i
     fi
 done
@@ -26,7 +28,7 @@ then
     echo "WARNING setting the sim name to [$NAME], this may not be what you want."
 fi
 # Sanitize the name.  Not removing [ or ], couldn't get that to work, only important for Windows.
-sim=$(echo "${NAME}" | sed -e 's/[\\/:\*\?"<>\|@#$%&\0\x01-\x1F\x27\x40\x60\x7F. ]/_/g' -e 's/^$/NONAME/')
+sim=$(sanitize $NAME)
 
 if [ "x$LOCATION" = "x" ]
 then
@@ -43,9 +45,9 @@ then
 # According to the OpenSim docs, 0.0.0.0 means to listen on all NICs the machine has, which should work fine.
 fi
 
-# Here we make use of an external IP finding service.  Careful, it may move.
 if [ "x$URL" = "x" ]
 then
+# Here we make use of an external IP finding service.  Careful, it may move.
 #    URL=$(wget -q http://automation.whatismyip.com/n09230945.asp -O -)	# URL is best (without the HTTP://), but IP (e.g. 88.109.81.55) works too.
     URL="SYSTEMIP"
     echo "WARNING setting the ExternalHostName to $URL, this may not be what you want."
@@ -56,8 +58,14 @@ then
     SIZE="256"
 fi
 
-NUM=$(printf "%02d" $(($k + 1)) )
-PORT=$(( 9005 + ($k * 5) ))	# 9002 is used for HTTP/UDP so START with port 9003! CAUTION Diva/D2 starts at port 9000.
+# Wow, the hoops we have to jump through to avoid octal.
+if [ 9 -gt $k ]; then
+    NUM=$(printf '0%1s' $(( 10#$k + 1 )) )
+else
+    NUM=$(printf '%2s' $(( 10#$k + 1 )) )
+fi
+
+PORT=$(( 9005 + (10#$k * 5) ))	# 9002 is used for HTTP/UDP so START with port 9003! CAUTION Diva/D2 starts at port 9000.
 UUID=$(uuidgen)
 
 echo "Creating sim$NUM on port $PORT @ $LOCATION - $NAME."
@@ -80,10 +88,9 @@ cp -P start-sim backup-sim
 cp -P start-sim stop-sim
 
 sed -i "s@SIM_NUMBER@$NUM@g" ThisSim.ini
-sed -i "s@SIM_PORT@$PORT@g" ${sim}.xml
+sed -i "s@SIM_PORT@$PORT@g" ThisSim.ini
 
-
-cp ../../current/scripts/opensim-monit.conf opensim-monit.conf
 sed -i "s@SIM_NUMBER@$NUM@g" opensim-monit.conf
+
 sudo chown -R opensim:opensim ..
 sudo chmod -R g+w ..

@@ -1,8 +1,51 @@
 Use this to create a sim that links into Infinite Grid from Linux.
 
-It's only been tested on Ubuntu 10.04, 11.04, 12.04, and 16.04, YMMV. 
-This is also a WIP, use it at your own risk.  It's been used to set up
-a few freshly installed Ubuntu servers though.
+It's only been tested on Ubuntu 10.04, 11.04, 12.04, 16.04' as well as
+Debian 8, YMMV.  This is also a WIP, use it at your own risk.  It's been
+used to set up a few freshly installed Ubuntu servers though.
+
+The directory layout.
+---------------------
+
+The various directories are -
+
+.git		Used by git for it's internal accounting, and the older versions.
+
+.nant		Used by the nant build tool.
+
+OpenSim		OpenSim source code.
+
+Prebuild	Used by the build system.
+
+ThirdParty	For third party OpenSim modules.
+
+addon-modules	Also for third party modules.  Don't ask me why there's two.
+
+bin		The OpenSim binaries, and other files.
+
+doc		Supposedly for documentation, which I wish OpenSim devs would write some.
+
+scripts		Various Linux scripts for managing OpenSim.
+
+share		No idea really.
+
+Also, the installation script moves the following directories to outside
+of this main directory, they are all used for writing various things. 
+Makes it easy to upgrade, and separates them from actual executable
+stuff.
+
+AssetFiles	Stores assets if running in grid mode.
+
+backups		All sim and inventory backups are stored here.
+
+caches		Various cached things.
+
+config		All your configurtion files.
+
+db		If you are not using MySQL, your data lives here.
+
+logs		Log files get stored here.
+
 
 Follow these steps.
 -------------------
@@ -20,7 +63,7 @@ rearranged so that there is only ONE copy of the OpenSim installation.
 
 Next you need to figure out what password you want to use for OpenSims
 access to the database.  We will call this "DatabasePassword".  Run the
-following script -
+following script, from inside the OpenSim directory -
 
 ./InstallItAll.sh DatabasePassword
 
@@ -29,7 +72,7 @@ is a final step that needs to be done manually for now.  Edit
 /etc/rc.local, make sure it has the following line in it somewhere,
 probably at the end -
 
-/opt/opensim/setup/fix_var_run.sh
+/opt/opensim/current/scripts/fix_var_run.sh
 
 
 Creating sims.
@@ -47,7 +90,8 @@ A location for your sim, we will use "1234,5678".  You can use the
 Infinite Grid web based map to poke around and find a good location. 
 Choose an empty spot.
 
-Once you have all that information sorted out, run this script -
+Once you have all that information sorted out, run this script from the
+installed scripts directory -
 
 ./create_sim.sh "My new sim" "1234,5678" "sims.example.net"
 
@@ -55,6 +99,11 @@ Or this if you want to override the detected IP address -
 
 ./create_sim.sh "My new sim" "1234,5678" "sims.example.net" "1.2.3.4"
 
+Also, you can create a varregion with something like -
+
+./create_sim.sh "My new sim" "1234,5678" "sims.example.net" "1.2.3.4" 512
+
+Note that the size has to be a multiple of 256, so 512, 768, 1024, etc.
 
 Running sims.
 -------------
@@ -81,7 +130,7 @@ Finishing up.
 -------------
 
 Once it's all tested, you can use this to finish things off (back in
-this setup directory) -
+the scripts directory) -
 
 ./go_live.sh
 

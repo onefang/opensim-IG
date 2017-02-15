@@ -54,7 +54,7 @@ echo "Installing software."
 sudo apt-get install mysql-server tmux mono-complete mono-gmcs nant nunit uuid-runtime monit mc
 sudo /etc/init.d/mysql restart
 
-echo "Setting up mySQL."
+echo "Setting up OpenSim users."
 # "create user if not exists" doesn't exist until MySQL 5.7, so we have to put up with a warning, which we can ignore.
 mysql -u root -p -h localhost << zzzzEOFzzz
 create database if not exists $MYSQL_DB;
@@ -65,10 +65,14 @@ grant all on $MYSQL_DB.* to $OS_USER@localhost;
 FLUSH PRIVILEGES;
 zzzzEOFzzz
 
-echo "Setting up OpenSim."
 sudo adduser --system --shell /bin/bash --group $OS_USER
 sudo addgroup $USER $OS_USER
 
+echo "Building OpenSim."
+./runprebuild.sh
+./nant-color
+
+echo "Setting up OpenSim."
 sudo rm -fr   $OSPATH/opensim-IG_*
 sudo mkdir -p $OSPATH/opensim-IG_$OSVER
 sudo cp -fr $PRGDIR/* $OSPATH/opensim-IG_$OSVER
@@ -92,10 +96,6 @@ sudo ln -fs ../../current/scripts/common.sh common.sh
 sudo ln -fs ../../current/scripts/start-sim start-sim
 sudo ln -fs ../../current/scripts/start-sim stop-sim
 popd >/dev/null
-
-echo "Building OpenSim."
-./runprebuild.sh
-./nant-color
 
 echo "Securing OpenSim."
 sudo chown -R $OS_USER:$OS_USER $OSPATH
@@ -124,4 +124,4 @@ sudo chmod 644 /home/$OS_USER/.tmux.conf
 
 sudo scripts/fix_var_run.sh
 
-echo "Done setting up OpenSim."
+echo "Done installing OpenSim."

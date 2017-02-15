@@ -43,6 +43,9 @@ db/*.db
 db/*.db-journal
 caches/addin-db-*
 bin/*.dll
+!bin/LukeSkywalker.IPNetwork.dll
+!bin/Npgsql.dll
+!bin/ICSharpCode.SharpZipLib.dll
 bin/OpenSim.vshost.exe.config
 bin/OpenSim.32BitLaunch.vshost.exe.config
 logs/OpenSim.32BitLaunch.log

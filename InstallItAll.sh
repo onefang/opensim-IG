@@ -78,15 +78,6 @@ sudo ln -fs opensim-IG_$OSVER current
 
 cd current
 
-sudo chown -R $OS_USER:$OS_USER $OSPATH
-sudo chmod -R 775 $OSPATH
-sudo chmod -R a-x $OSPATH
-sudo chmod -R a+X $OSPATH
-sudo chmod -R g+w $OSPATH
-sudo chmod -R a+x $OSPATH/current/scripts/*.sh
-sudo chmod a+x $OSPATH/current/scripts/show-console
-sudo chmod a+x $OSPATH/current/scripts/start-sim
-
 for dir in AssetFiles backups caches config db logs
 do
     if [ ! -f ../$dir ]; then
@@ -96,15 +87,29 @@ do
     fi
 done
 
-sudo chmod ug+rwx  $OSPATH/config
-sudo chmod g+s     $OSPATH/config
-sudo chmod 600 $OSPATH/config/config.ini
-
 pushd config/ROBUST >/dev/null
 sudo ln -fs ../../current/scripts/common.sh common.sh
 sudo ln -fs ../../current/scripts/start-sim start-sim
 sudo ln -fs ../../current/scripts/start-sim stop-sim
 popd >/dev/null
+
+echo "Building OpenSim."
+./runprebuild.sh
+./nant-color
+
+echo "Securing OpenSim."
+sudo chown -R $OS_USER:$OS_USER $OSPATH
+sudo chmod -R 775 $OSPATH
+sudo chmod -R a-x $OSPATH
+sudo chmod -R a+X $OSPATH
+sudo chmod -R g+w $OSPATH
+sudo chmod -R a+x $OSPATH/current/scripts/*.sh
+sudo chmod a+x $OSPATH/current/scripts/show-console
+sudo chmod a+x $OSPATH/current/scripts/start-sim
+
+sudo chmod ug+rwx  $OSPATH/config
+sudo chmod g+s     $OSPATH/config
+sudo chmod 600 $OSPATH/config/config.ini
 
 sudo sed -i "s@MYSQL_HOST@${MYSQL_HOST}@g" config/config.ini
 sudo sed -i "s@MYSQL_DB@${MYSQL_DB}@g" config/config.ini

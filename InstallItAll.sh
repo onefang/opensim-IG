@@ -51,10 +51,11 @@ fi
 USER=$(whoami)
 
 echo "Installing software."
-sudo apt-get install mysql-server tmux mono-complete nant nunit uuid-runtime monit mc
+sudo apt-get install mysql-server tmux mono-complete mono-gmcs nant nunit uuid-runtime monit mc
 sudo /etc/init.d/mysql restart
 
 echo "Setting up mySQL."
+# "create user if not exists" doesn't exist until MySQL 5.7, so we have to put up with a warning, which we can ignore.
 mysql -u root -p -h localhost << zzzzEOFzzz
 create database if not exists $MYSQL_DB;
 create user $OS_USER identified by '$MYSQL_PASSWORD';
@@ -104,12 +105,6 @@ sudo ln -fs ../../current/scripts/common.sh common.sh
 sudo ln -fs ../../current/scripts/start-sim start-sim
 sudo ln -fs ../../current/scripts/start-sim stop-sim
 popd >/dev/null
-pushd config/sim01 >/dev/null
-sudo ln -fs ../../current/scripts/common.sh common.sh
-sudo ln -fs ../../current/scripts/start-sim backup-sim
-sudo ln -fs ../../current/scripts/start-sim start-sim
-sudo ln -fs ../../current/scripts/start-sim stop-sim
-popd >/dev/null
 
 sudo sed -i "s@MYSQL_HOST@${MYSQL_HOST}@g" config/config.ini
 sudo sed -i "s@MYSQL_DB@${MYSQL_DB}@g" config/config.ini
@@ -123,3 +118,5 @@ sudo chown $USER /home/$OS_USER/.tmux.conf
 sudo chmod 644 /home/$OS_USER/.tmux.conf
 
 sudo scripts/fix_var_run.sh
+
+echo "Done setting up OpenSim."

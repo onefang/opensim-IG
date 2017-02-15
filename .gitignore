@@ -68,8 +68,6 @@ caches/maptiles
 bin/bakes
 bin/estate_settings.xml
 config/config-include/CenomeCache.ini
-config/config-include/FlotsamCache.ini
-config/config-include/GridCommon.ini
 config/config-include/StandaloneCommon.ini
 logs/OpenSim.Grid.AssetInventoryServer.log
 logs/OpenSim.Grid.AssetServer.log
